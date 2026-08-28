@@ -1,0 +1,74 @@
+# ---- Unity (pico_teleop_unity) ----
+# Library/ 是 IL2CPP/Bee 构建缓存，打开工程会自动重建（本地约 3.7G）
+Library/
+Temp/
+Obj/
+obj/
+Logs/
+UserSettings/
+MemoryCaptures/
+Recordings/
+*.apk
+*.aab
+Builds/
+*.csproj
+*.sln
+*.unitypackage
+*.pidb
+*.booproj
+*.svd
+*.userprefs
+
+# ---- ROS 2 / colcon ----
+build/
+install/
+log/
+devel/
+.catkin_workspace
+*.colcon_install_layout
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ---- 运行时日志与录制数据（本地约 1G）----
+logs/
+*.jsonl
+*.bag
+*.db3
+*.mcap
+log.txt
+
+# ---- 预编译大二进制：超出 GitHub 100MB 上限，需从厂商 SDK 包另行获取 ----
+# MANUS SDK 动态库（每个 112~137MB）
+**/ManusSDK/lib/*.so
+# PICO SDK 调试符号与平台插件
+*.pdb
+**/Plugins/Windows/VolcEngineRTC.dll
+# 编译产物
+*.o
+*.a
+*.so.dbg
+*.sym.so
+*.dbg.so
+*.aar
+
+# ---- 嵌套仓库自身的 git 元数据（源码本身照常提交）----
+airbot+hand-workspace/revo2_description/.git/
+
+# ---- 系统与编辑器 ----
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# 上游仓库 git 元数据备份（本地保留，不上传）
+.git.upstream-backup/

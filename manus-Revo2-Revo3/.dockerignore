@@ -1,0 +1,12 @@
+.git
+**/.git
+**/__pycache__
+**/*.pyc
+**/*.zip
+Revo-Retargeting-revo2_retargeting/build
+Revo-Retargeting-revo2_retargeting/install
+Revo-Retargeting-revo2_retargeting/log
+Revo-Retargeting-revo2_retargeting/log.txt
+Revo-Retargeting-revo3_retargeting/build
+Revo-Retargeting-revo3_retargeting/install
+Revo-Retargeting-revo3_retargeting/log

@@ -1,0 +1,65 @@
+network:
+  listen_ip: "0.0.0.0"
+  port: 15000
+  timeout_sec: 0.5
+
+teleop:
+  controller: "right"
+  deadman: "trigger"
+  deadman_press_threshold: 0.5
+  deadman_release_threshold: 0.3
+  require_deadman_release_on_start: true
+  gripper: "grip"
+  gripper_full_close: 0.85
+  position_scale: 1.0
+  # Flange (gripper mount) follows controller orientation 1:1, then clamp.
+  rotation_scale: 1.0
+  pause_button: "left_primary"
+  # PICO right-controller A button returns to configured AIRBOT home_joints.
+  home_button: "right_primary"
+  # Same as TianJi: yaw-only operator frame. Push forward relative to facing
+  # → robot +X. Pitch/roll of the neck-hung HMD are dropped.
+  head_base: true
+  delay_vr_baseline: true
+  # Per trigger-hold travel. Angle cap ~86 deg so the wrist is visible.
+  max_delta_position: 0.35
+  max_delta_angle: 1.50
+
+transform:
+  vr_space: "unity"
+  axis_map:
+    x: ["x", 1.0]
+    y: ["y", 1.0]
+    z: ["z", 1.0]
+
+filter:
+  enabled: true
+  position_alpha: 0.25
+  rotation_alpha: 0.25
+
+limits:
+  # Disabled for direct end_link flange following. The AIRBOT backend still
+  # applies its lower-level slew limits from Robot_control_interface/config.
+  enabled: false
+  max_linear_velocity: 0.20
+  max_angular_velocity: 0.15
+
+workspace:
+  # AIRBOT Play reachable box around the calibrated home TCP (~0.13, 0, 0.21).
+  # Out-of-box targets are clamped; teleop stays active.
+  enabled: true
+  stop_on_exceed: false
+  x: {min: 0.06, max: 0.50}
+  y: {min: -0.22, max: 0.22}
+  z: {min: 0.10, max: 0.50}
+
+robot:
+  adapter: "command_layer"
+  command_layer: "../Robot_control_interface/config/airbot_sdk.yaml"
+
+logging:
+  level: "INFO"
+
+recording:
+  enabled: true
+  directory: "logs"

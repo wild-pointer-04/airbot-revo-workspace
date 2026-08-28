@@ -1,0 +1,17 @@
+__pycache__/
+*.egg-info/
+data/
+build/
+.vscode/
+*.mcap
+*.bson
+*.json
+*.txt
+*.log
+test.py
+airbot_logs/
+# hydra outputs
+outputs/
+multirun/
+dist/
+*.mp4

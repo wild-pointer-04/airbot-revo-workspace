@@ -1,0 +1,44 @@
+# Combined AIRBOT Play + Revo2 workspace image (ROS 2 Humble).
+# Extends the verified manus-revo:humble image. Adds CAN tools, docker CLI,
+# and airbot_py. Does not install the Noble airbot_cpp deb.
+FROM manus-revo:humble
+
+USER root
+
+ENV AIRBOT_VENV=/opt/airbot-venv \
+    AIRBOT_WORKSPACE=/home/ubuntu/airbot+hand-workspace \
+    PATH="/opt/airbot-venv/bin:${PATH}" \
+    VIRTUAL_ENV=/opt/airbot-venv
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        can-utils \
+        docker.io \
+        iproute2 \
+        net-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY vendor/airbot/airbot_py-5.1.6-py3-none-any.whl /tmp/airbot_py-5.1.6-py3-none-any.whl
+
+RUN python3 -m venv "${AIRBOT_VENV}" \
+    && "${AIRBOT_VENV}/bin/pip" install --no-cache-dir --upgrade pip \
+    && "${AIRBOT_VENV}/bin/pip" install --no-cache-dir /tmp/airbot_py-5.1.6-py3-none-any.whl \
+    && "${AIRBOT_VENV}/bin/pip" install --no-cache-dir \
+        numpy pyyaml pydantic pydantic-settings omegaconf hydra-zen \
+    && rm -f /tmp/airbot_py-5.1.6-py3-none-any.whl \
+    && chmod -R a+rX "${AIRBOT_VENV}"
+
+RUN printf '%s\n' \
+    '[ -n "${BASH_VERSION:-}" ] || return 0' \
+    'source /opt/ros/humble/setup.bash' \
+    '[ -f /home/dt/manus-Revo2-Revo3/Revo-Retargeting-revo2_retargeting/install/setup.bash ] && source /home/dt/manus-Revo2-Revo3/Revo-Retargeting-revo2_retargeting/install/setup.bash' \
+    'export AIRBOT_VENV=/opt/airbot-venv' \
+    'export AIRBOT_WORKSPACE=/home/ubuntu/airbot+hand-workspace' \
+    'export VIRTUAL_ENV=/opt/airbot-venv' \
+    'export PATH="/opt/airbot-venv/bin:${PATH}"' \
+    > /etc/profile.d/airbot-revo.sh \
+    && chmod 644 /etc/profile.d/airbot-revo.sh \
+    && cp /etc/profile.d/airbot-revo.sh /root/.bashrc \
+    && printf '\n%s\n' 'source /etc/profile.d/airbot-revo.sh' >> /home/dt/.bashrc
+
+WORKDIR /home/dt/manus-Revo2-Revo3
+CMD ["bash"]
