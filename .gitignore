@@ -72,3 +72,10 @@ Thumbs.db
 
 # 上游仓库 git 元数据备份（本地保留，不上传）
 .git.upstream-backup/
+
+# 临时排除超大二进制文件以完成首次推送（后续可用 LFS 或 release 补充）
+*.pdf
+*.dll
+*.dylib
+*.STL
+*.wav
