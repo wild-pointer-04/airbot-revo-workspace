@@ -1,0 +1,4 @@
+# Build context is the workspace root (compose.yaml context: ..).
+# Keep this file empty of catch-all excludes so `docker build -f docker/Dockerfile .`
+# from this directory is not used accidentally.
+*

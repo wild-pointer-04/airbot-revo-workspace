@@ -1,0 +1,82 @@
+# VIVE teleop → same middle_interface pipeline as PICO.
+source: vive
+
+vive:
+  tracker_config: config/tracker.yaml
+  head: body_hmd
+  hand: hand_controller
+  timeout_sec: 0.5
+  rate_hz: 60
+
+network:
+  timeout_sec: 0.5
+
+teleop:
+  controller: "right"
+  deadman: "trigger"
+  deadman_press_threshold: 0.5
+  deadman_release_threshold: 0.3
+  require_deadman_release_on_start: true
+  gripper: "grip"
+  gripper_full_close: 0.85
+  position_scale: 1.0
+  # Wrist-mounted puck attitude is not the gripper frame. Following it 1:1
+  # rotated the flange up to ~87° in mapping_20260902-194629 and made
+  # "hand up" come out as side/down through IK. Position-only until
+  # wrist extrinsics are calibrated.
+  rotation_scale: 0.0
+  pause_button: "left_primary"
+  home_button: "right_primary"
+  # Waist tracker = origin only. Do not use puck facing as yaw — a belt
+  # mount almost never points "operator forward", which made hand-forward
+  # drive robot Y (left/right) in the 2026-09-02 mapping log.
+  head_base: true
+  head_base_yaw: world
+  # This room: operator faces SteamVR +Z, which is teleop -X. 180° makes
+  # "hand toward the robot" = robot +X. Mapping 193535 was 63% stuck at x=0.06.
+  head_yaw_offset_deg: 180.0
+  delay_vr_baseline: true
+  # Per trigger-hold travel. Angle cap ~86 deg so the wrist is visible.
+  max_delta_position: 0.35
+  max_delta_angle: 1.50
+
+# libsurvive / SteamVR is OpenXR Stage: +X right, +Y up, -Z forward.
+transform:
+  vr_space: steamvr
+  axis_map:
+    x: ["x", 1.0]
+    y: ["y", 1.0]
+    z: ["z", 1.0]
+
+filter:
+  enabled: true
+  position_alpha: 0.25
+  rotation_alpha: 0.25
+
+limits:
+  enabled: false
+  max_linear_velocity: 0.20
+  max_angular_velocity: 0.15
+
+workspace:
+  # AIRBOT Play reachable box around the calibrated home TCP (~0.13, 0, 0.21).
+  # Out-of-box targets are clamped; teleop stays active.
+  enabled: true
+  stop_on_exceed: false
+  x: {min: 0.06, max: 0.50}
+  y: {min: -0.22, max: 0.22}
+  z: {min: 0.10, max: 0.50}
+
+robot:
+  adapter: "command_layer"
+  command_layer: "../Robot_control_interface/config/airbot_sdk.yaml"
+  dummy_initial_position: [0.30, 0.0, 0.20]
+  dummy_initial_rotation: [0.0, 0.0, 0.0, 1.0]
+
+arm_state:
+  enabled: true
+  topic: /arm/state
+  hz: 50
+
+logging:
+  level: "INFO"

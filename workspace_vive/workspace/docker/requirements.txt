@@ -1,0 +1,23 @@
+# Teleop / command layer
+numpy>=1.24
+PyYAML>=6.0
+pytest>=7.0
+
+# AIRBOT Python SDK (also pulled by the wheel: grpcio, grpcio-tools, typeguard)
+# Installed separately from airbot_py-5.1.6-py3-none-any.whl
+
+# AIRDC core + soft/cfg extras (no torch / RealSense)
+pydantic
+pydantic-settings
+omegaconf>=2.3.0
+hydra-zen
+more-itertools
+typing-extensions
+setproctitle
+inflection
+transitions
+bidict
+tqdm
+ruamel.yaml
+flatten-dict
+mcap-data-loader>=0.1.3

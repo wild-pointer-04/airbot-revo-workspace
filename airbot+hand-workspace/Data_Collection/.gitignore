@@ -1,0 +1,9 @@
+data/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+*.pyo
+.venv/
+.venv-collect/
+*.egg-info/
+vive/data/

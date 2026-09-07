@@ -57,6 +57,11 @@ robot:
   adapter: "command_layer"
   command_layer: "../Robot_control_interface/config/airbot_sdk.yaml"
 
+arm_state:
+  enabled: true
+  topic: /arm/state
+  hz: 50
+
 logging:
   level: "INFO"
 

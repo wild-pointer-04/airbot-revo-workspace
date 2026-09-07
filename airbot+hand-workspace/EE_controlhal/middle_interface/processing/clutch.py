@@ -168,9 +168,18 @@ class Clutch:
                 identity_quat(), delta_rot, self.max_delta_angle / angle
             )
 
+        # DEBUG: 记录转换前后的增量
+        import logging
+        logger = logging.getLogger(__name__)
+        if np.linalg.norm(delta_pos) > 0.01:  # 只记录大于1cm的移动
+            logger.warning(f"[CLUTCH] delta BEFORE transform: {delta_pos}")
+
         if self.command_transform is not None:
             delta_pos = self.command_transform.transform_position(delta_pos)
             delta_rot = self.command_transform.transform_rotation(delta_rot)
+            if np.linalg.norm(delta_pos) > 0.01:
+                logger.warning(f"[CLUTCH] delta AFTER transform:  {delta_pos}")
+                logger.warning(f"[CLUTCH] transform R:\n{self.command_transform.R}")
 
         return (
             Pose(

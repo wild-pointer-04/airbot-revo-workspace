@@ -1,0 +1,43 @@
+# Ego multimodal collector
+# 相机本地读；机械臂关节角 / 末端由 /arm/state 进入后落盘。
+
+task: pick_cup
+mock: false
+# Empty = Data_Collection/data next to this repo, so the same config works on the
+# host and under the container mount. Override with --data-root or an absolute path.
+data_root: null
+
+# 臂状态来源。遥操侧（VIVE/PICO）负责发布 /arm/state。
+#   rosbridge — 走 websocket 订 /arm/state。遥操容器是 ROS 2 Humble / Python 3.10，
+#               而 vendor 的 LeRobot 要 Python >= 3.12，所以采集器跑在自己的 3.12
+#               环境里，通过 rosbridge 跨进程拿臂状态。这是真机默认路径。
+#   ros2      — 直接用 rclpy 订阅。只有采集器和遥操在同一个 ROS 环境里才可用
+#               （此时落盘会退化成 JSONL，因为 3.10 跑不了 LeRobot）。
+#   local     — 本地假臂状态，无硬件自测用。
+state_source: rosbridge   # rosbridge | ros2 | local
+
+ros2:
+  arm_topic: /arm/state
+
+dataset:
+  repo_id: pick_cup
+  fps: 10
+  use_videos: true
+  # Empty = <data_root>/lerobot.
+  root: null
+
+cameras:
+  cam_right_wrist:
+    serial_number: "130322270281"   # D405
+    width: 640
+    height: 480
+    fps: 30
+    enable_depth: false
+
+# host/port 同时供 state_source=rosbridge 的臂状态订阅使用。
+# enabled/topic 只管远程录制指令 /record_cmd，与臂状态无关。
+rosbridge:
+  enabled: false
+  host: localhost
+  port: 9090
+  topic: /record_cmd

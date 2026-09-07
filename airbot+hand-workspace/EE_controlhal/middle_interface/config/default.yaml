@@ -61,5 +61,10 @@ robot:
   dummy_initial_position: [0.30, 0.0, 0.20]
   dummy_initial_rotation: [0.0, 0.0, 0.0, 1.0]
 
+arm_state:
+  enabled: true
+  topic: /arm/state
+  hz: 50
+
 logging:
   level: "INFO"

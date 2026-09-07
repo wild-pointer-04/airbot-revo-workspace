@@ -16,6 +16,10 @@ from processing.safety import TeleopState
 from pose_recorder import PoseRecorder
 from robot import create_adapter
 
+_COMMAND = Path(__file__).resolve().parent.parent / "Robot_control_interface"
+if str(_COMMAND) not in sys.path:
+    sys.path.insert(0, str(_COMMAND))
+
 logger = logging.getLogger("middle_interface")
 
 
@@ -58,6 +62,17 @@ def run(config: dict[str, Any]) -> None:
     adapter = create_adapter(config)
     adapter.connect()
     pipeline = TeleopPipeline(config, adapter.get_ee_pose)
+    pub = None
+    arm_cfg = dict(config.get("arm_state") or {})
+    if bool(arm_cfg.get("enabled", True)):
+        from state_pub import ARM_TOPIC, ArmStatePublisher
+
+        pub = ArmStatePublisher(
+            adapter.get_arm_state,
+            topic=str(arm_cfg.get("topic") or ARM_TOPIC),
+            hz=float(arm_cfg.get("hz", 50)),
+        )
+        pub.start()
     recorder = PoseRecorder.from_config(
         config.get("recording"), pipeline.controller
     )
@@ -140,6 +155,8 @@ def run(config: dict[str, Any]) -> None:
     except KeyboardInterrupt:
         logger.info("shutting down")
     finally:
+        if pub is not None:
+            pub.stop()
         adapter.stop()
         adapter.disconnect()
         receiver.close()

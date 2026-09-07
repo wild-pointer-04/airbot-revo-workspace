@@ -66,9 +66,10 @@ class DummyRobotAdapter(BaseRobotAdapter):
         now = time.monotonic()
         if now - self._last_log >= self._log_period:
             self._last_log = now
+            pos_cm = np.round(command.position * 100, 1).tolist()
             logger.info(
-                "[ROBOT] Dummy target: position=%s rotation=%s gripper=%.3f n=%s",
-                np.round(command.position, 4).tolist(),
+                "[ROBOT] Dummy target: position_cm=%s rotation=%s gripper=%.3f n=%s",
+                pos_cm,
                 np.round(command.rotation, 4).tolist(),
                 command.gripper,
                 self._command_count,
@@ -76,9 +77,10 @@ class DummyRobotAdapter(BaseRobotAdapter):
 
     def stop(self) -> None:
         if self._enabled:
+            pos_cm = np.round(self._pose.position * 100, 1).tolist()
             logger.info(
-                "[ROBOT] Dummy stop at position=%s",
-                np.round(self._pose.position, 4).tolist(),
+                "[ROBOT] Dummy stop at position_cm=%s",
+                pos_cm,
             )
         self._enabled = False
 

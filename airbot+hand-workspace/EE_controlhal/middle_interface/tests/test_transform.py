@@ -143,3 +143,34 @@ def test_head_base_yaw_invariance():
     np.testing.assert_allclose(
         np.abs(np.dot(rel0.rotation, rel1.rotation)), 1.0, atol=1e-8
     )
+
+
+def test_head_base_world_yaw_ignores_tracker_orientation():
+    from processing.head_base import HeadBase
+    from processing.math_pose import quat_from_matrix
+
+    hb = HeadBase(yaw_source="world")
+    ident = np.array([0.0, 0.0, 0.0, 1.0])
+    hmd = Pose(np.array([0.0, 0.0, 1.0]), ident)
+    hand = Pose(np.array([0.30, 0.0, 1.0]), ident)
+    rel0 = hb.relative(hmd, True, hand)
+
+    yaw = quat_from_matrix(
+        np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    )
+    hmd_turned = Pose(hmd.position.copy(), yaw)
+    rel1 = hb.relative(hmd_turned, True, hand)
+    np.testing.assert_allclose(rel0.position, rel1.position, atol=1e-8)
+    np.testing.assert_allclose(rel0.position, [0.30, 0.0, 0.0], atol=1e-8)
+
+
+def test_head_base_world_yaw_180_flips_forward_and_left():
+    from processing.head_base import HeadBase
+
+    hb = HeadBase(yaw_source="world", yaw_offset_deg=180.0)
+    ident = np.array([0.0, 0.0, 0.0, 1.0])
+    hmd = Pose(np.zeros(3), ident)
+    # 30 cm along teleop +X (world forward) and +Y (world left)
+    hand = Pose(np.array([0.30, 0.10, 0.0]), ident)
+    rel = hb.relative(hmd, True, hand)
+    np.testing.assert_allclose(rel.position, [-0.30, -0.10, 0.0], atol=1e-8)

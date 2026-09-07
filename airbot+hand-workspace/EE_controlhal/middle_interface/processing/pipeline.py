@@ -61,7 +61,15 @@ class TeleopPipeline:
         )
         self._get_robot_pose = get_robot_pose
         self.command_transform = CoordinateTransform.from_config(transform_cfg)
-        self.head_base = HeadBase()
+
+        # DEBUG: 打印坐标转换矩阵
+        logger.warning(f"[PIPELINE INIT] axis_map: {transform_cfg.get('axis_map')}")
+        logger.warning(f"[PIPELINE INIT] transform matrix R:\n{self.command_transform.R}")
+
+        self.head_base = HeadBase(
+            yaw_source=str(teleop.get("head_base_yaw", "tracker")),
+            yaw_offset_deg=float(teleop.get("head_yaw_offset_deg", 0.0)),
+        )
         self.clutch = Clutch(
             press_threshold=float(
                 teleop.get(

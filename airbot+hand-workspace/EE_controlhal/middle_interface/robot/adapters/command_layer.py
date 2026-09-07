@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Any, Mapping
+
+import numpy as np
 
 from protocol.pico_packet import Pose
 from protocol.robot_command import RobotCommand
@@ -94,3 +97,15 @@ class CommandLayerAdapter(BaseRobotAdapter):
 
     def is_connected(self) -> bool:
         return bool(self._arm.is_connected())
+
+    def get_arm_state(self) -> dict:
+        state = self._arm.get_state()
+        return {
+            "observation.state.arm_joint": np.asarray(state.joint_pos, dtype=np.float32).reshape(-1),
+            "observation.state.arm_ee_position": np.asarray(state.position, dtype=np.float32).reshape(3),
+            "observation.state.arm_ee_orientation": np.asarray(state.rotation, dtype=np.float32).reshape(4),
+            "observation.state.arm_valid": np.array(
+                [1.0 if state.connected else 0.0], dtype=np.float32
+            ),
+            "host_monotonic_ns": int(state.stamp_ns or time.monotonic_ns()),
+        }

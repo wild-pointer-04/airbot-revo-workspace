@@ -17,7 +17,8 @@ PICO / mock sender
   → index-trigger deadman + delayed VR baseline + Δp/Δq limits
   → teleop_to_command (HAL axis_map) + velocity / workspace
   → absolute Cartesian RobotCommand
-  → DummyRobotAdapter (default) or Robot_control_interface / ARX `/arm_cmd`
+  → DummyRobotAdapter (default) or Robot_control_interface / airbot_sdk
+  → /arm/state  (joint + EE, for Data_Collection)
 ```
 
 Control method (same as the Quest teleop stack): freeze the robot TCP when the index trigger is pressed; each later frame adds the head-base hand delta onto that TCP. Release the trigger to hold. Side grip is the gripper (`≥0.85` = fully closed). Left primary pauses. Right A (`right_primary`) goes to the configured `go_home_position` (currently joint zeros). Home, pause, and link-timeout require a trigger release before teleop can be re-enabled.

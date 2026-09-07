@@ -94,7 +94,7 @@ class ArxRos2Controller(ArmController):
     def connect(self) -> None:
         from ros_env import ensure_ros
 
-        ensure_ros()
+        ensure_ros(require_arx=True)
         try:
             import rclpy
             from arx5_arm_msg.msg import RobotCmd, RobotStatus

@@ -1,0 +1,20 @@
+# Command layer. dummy never touches hardware.
+backend: dummy
+
+dummy:
+  position: [0.30, 0.0, 0.20]
+  rotation: [0.0, 0.0, 0.0, 1.0]
+
+ros:
+  cmd_topic: /arm_cmd
+  status_topic: /arm_status
+  node_name: robot_command_layer
+  publish_hz: 100
+  status_timeout_sec: 2.0
+
+arm:
+  enable_gripper: false
+  hold_mode: end_control
+
+logging:
+  level: INFO

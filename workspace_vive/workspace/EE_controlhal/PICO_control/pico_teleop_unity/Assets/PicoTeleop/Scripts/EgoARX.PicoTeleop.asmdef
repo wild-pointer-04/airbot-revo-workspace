@@ -1,0 +1,16 @@
+{
+    "name": "EgoARX.PicoTeleop",
+    "rootNamespace": "EgoARX.PicoTeleop",
+    "references": [
+        "PICO.TobSupport"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

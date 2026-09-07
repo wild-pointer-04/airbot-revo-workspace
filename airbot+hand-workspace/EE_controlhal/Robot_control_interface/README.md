@@ -38,7 +38,7 @@ Python CAN SDK（`SingleArm`）和 ROS 控制器互斥，本层不用 CAN SDK。
 ```bash
 /home/dt/ego_ARX/bringup_single_arm.sh
 # 另开终端确认状态
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 source /home/dt/ego_ARX/ARX/ARX_X5-main/ROS2/X5_ws/install/setup.bash
 ros2 topic echo /arm_status --once
 ```
@@ -52,7 +52,7 @@ cd /home/dt/ego_ARX/EE_controlhal/Robot_control_interface
 ./run.sh tools/send_cart.py --xyz 0.25 0.0 0.15
 ```
 
-`app.py` 若没 source ROS，会自动再 exec 一次带上 Jazzy / X5_ws。`X5Controller` 必须已经在跑。
+`app.py` 若没 source ROS，会自动再 exec 一次带上 ROS 2 / X5_ws。`X5Controller` 必须已经在跑。
 
 `send_cart.py` 会动真机。先读 `/arm_status` 的 `end_pos`，只做小位移。
 
@@ -63,7 +63,7 @@ cd /home/dt/ego_ARX/EE_controlhal/Robot_control_interface
 ```bash
 cd /home/dt/ego_ARX/EE_controlhal/middle_interface
 source .venv/bin/activate
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 source /home/dt/ego_ARX/ARX/ARX_X5-main/ROS2/X5_ws/install/setup.bash
 # 15000 只能有一个进程；先停 pose_table
 python3 app.py --config config/arx.yaml

@@ -1,6 +1,10 @@
 # Combined AIRBOT Play + Revo2 workspace image (ROS 2 Humble).
 # Extends the verified manus-revo:humble image. Adds CAN tools, docker CLI,
-# and airbot_py. Does not install the Noble airbot_cpp deb.
+# airbot_py, and rosbridge. Does not install the Noble airbot_cpp deb.
+#
+# rosbridge is how Data_Collection reaches /arm/state: the collector needs
+# Python >= 3.12 for the vendored LeRobot, which Humble does not provide, so it
+# runs in its own host venv and subscribes over the websocket instead of rclpy.
 FROM manus-revo:humble
 
 USER root
@@ -15,15 +19,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         docker.io \
         iproute2 \
         net-tools \
+        ros-humble-rosbridge-suite \
     && rm -rf /var/lib/apt/lists/*
 
 COPY vendor/airbot/airbot_py-5.1.6-py3-none-any.whl /tmp/airbot_py-5.1.6-py3-none-any.whl
 
-RUN python3 -m venv "${AIRBOT_VENV}" \
+# --system-site-packages so ROS python nodes launched through this venv can still
+# see apt-installed modules (rosbridge needs tornado, netifaces, bson, cbor2).
+# The version floors matter here: Jammy ships numpy 1.21 / PyYAML 5.4 in
+# dist-packages, and without a floor pip would treat those as already satisfied
+# and leave the venv on them.
+RUN python3 -m venv --system-site-packages "${AIRBOT_VENV}" \
     && "${AIRBOT_VENV}/bin/pip" install --no-cache-dir --upgrade pip \
     && "${AIRBOT_VENV}/bin/pip" install --no-cache-dir /tmp/airbot_py-5.1.6-py3-none-any.whl \
     && "${AIRBOT_VENV}/bin/pip" install --no-cache-dir \
-        numpy pyyaml pydantic pydantic-settings omegaconf hydra-zen \
+        "numpy>=1.24" "pyyaml>=6.0" pydantic pydantic-settings omegaconf hydra-zen \
     && rm -f /tmp/airbot_py-5.1.6-py3-none-any.whl \
     && chmod -R a+rX "${AIRBOT_VENV}"
 

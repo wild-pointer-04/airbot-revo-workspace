@@ -1,0 +1,63 @@
+backend: libsurvive
+
+mock:
+  mode: sinusoidal
+  update_rate_hz: 90
+  playback_speed: 1.0
+  trajectory_csv: null
+  static:
+    x: 0.40
+    y: 0.00
+    z: 0.50
+  sinusoidal:
+    x0: 0.40
+    y0: 0.00
+    z0: 0.50
+    ax: 0.05
+    by: 0.03
+    cz: 0.02
+    omega: 1.0
+    omega2: 0.7
+  dropout:
+    enabled: false
+    duration_ms: 100
+    period_s: 2.0
+    serials: []
+
+libsurvive:
+  enabled: true
+  extra_args:
+    - --lighthouse-gen
+    - "1"
+    - --lighthouse-2-disable
+    - --lighthouse-3-disable
+    - --ootx-ignore-sync-error
+    - --init-configfile
+    - libsurvive_runtime.json
+    - --use-calibration
+    - --no-imu
+
+# Two trackers only: body-worn HMD + handheld controller.
+# Using runtime aliases WM0/WM1 reported by libsurvive
+trackers:
+  - logical_name: body_hmd
+    role: head
+    serial: WM0
+    enabled: true
+    extrinsics: null
+  - logical_name: hand_controller
+    role: hand
+    serial: WM1
+    enabled: true
+    extrinsics: null
+
+bench:
+  enabled: false
+  stale_s: 0.25
+
+logging:
+  console_rate_hz: 10
+  level: INFO
+
+queue:
+  max_size: 1000
