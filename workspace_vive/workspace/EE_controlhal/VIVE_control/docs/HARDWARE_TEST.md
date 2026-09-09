@@ -5,7 +5,7 @@
 ## 第一天
 
 ```bash
-cd /home/dt/manus-Revo2-Revo3/airbot+hand-workspace/EE_controlhal/VIVE_control
+cd /home/ubuntu/airbot-revo-workspace/workspace_vive/workspace/EE_controlhal/VIVE_control
 ./scripts/install_libsurvive.sh
 ./scripts/install_udev_rules.sh
 # 插入 Dongle；打开 Base Station 1.0 与 Tracker 3.0；关闭 SteamVR
@@ -15,6 +15,22 @@ python3 scripts/list_devices.py
 ```
 
 把两台真实 serial 写入 `config/tracker.yaml`（`body_hmd` / `hand_controller`），`backend: libsurvive`。
+
+## 腰部安装标定
+
+`body_hmd` 就是绑在腰部的 tracker，不是额外的头显。它可以竖直安装；手腕 tracker 可以水平佩戴且绿灯面朝上，二者方向无需一致。把腰部 tracker 固定在腰带上，确保整个过程都能被基站看到。绿灯面不能用来推断 tracker 上报的局部坐标轴。
+
+确认 Tracker ID 后，在实际运行的容器中执行以下只读标定。它不会启动遥操或发送机器人命令；传入 `--write` 后只替换 `teleop.head_tracker_to_body`：
+
+```bash
+docker exec -it -w /home/ubuntu/workspace/EE_controlhal/VIVE_control \
+  airbot-revo-humble \
+  python3 scripts/calibrate_body_mount.py --config config/teleop.yaml --write
+```
+
+采样顺序：先站直，采集手腕 tracker 相对腰部的起始位置；然后每次回到起始位置，保持躯干与腰部 tracker 姿势不动，分别将手腕 tracker 向身体正前、左方、上方平移至少 30 cm。每一步按回车后静止两秒。通过时得到 `body_vector = E @ tracker_vector` 的 `rotation_matrix`，其中 body 的坐标是前 / 左 / 上；运行时只使用它计算人体的水平 yaw。
+
+重绑腰部或改变腰部 tracker 朝向时重跑本节。手腕 tracker 的固定朝向不改变当前 XYZ 平移映射，不需要重跑 `axis_map` 标定。只有基站布局、`vr_space` 或 AIRBOT 命令坐标定义变化时，才运行 `scripts/calibrate_mapping.py`；该脚本只更新 `transform.axis_map`，不会覆盖腰部安装标定。
 
 ## Bench frame (three trackers)
 

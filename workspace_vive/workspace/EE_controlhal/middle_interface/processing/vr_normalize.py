@@ -1,7 +1,8 @@
 """Device tracking space → teleop_standard (+X forward, +Y left, +Z up).
 
 PICO Unity uses Unity XR InputDevices: +X right, +Y up, +Z forward.
-Raw OpenXR Stage / SteamVR / libsurvive is +X right, +Y up, -Z forward.
+Raw OpenXR Stage / SteamVR is +X right, +Y up, -Z forward.
+libsurvive reports a calibrated Z-up world. HeadBase supplies body heading.
 """
 
 from __future__ import annotations
@@ -70,8 +71,8 @@ def to_teleop_pose(pose: Pose, vr_space: str) -> Pose:
     space = str(vr_space or "unity").lower()
     if space in {"unity", "pico", "pico_unity"}:
         return unity_to_teleop_pose(pose)
-    if space in {"openxr", "pico_openxr", "steamvr", "vive", "libsurvive"}:
+    if space in {"openxr", "pico_openxr", "steamvr", "vive"}:
         return openxr_to_teleop_pose(pose)
-    if space in {"teleop", "teleop_standard", "identity"}:
+    if space in {"libsurvive", "teleop", "teleop_standard", "identity"}:
         return pose.copy()
     raise ValueError(f"unknown vr_space: {vr_space!r}")

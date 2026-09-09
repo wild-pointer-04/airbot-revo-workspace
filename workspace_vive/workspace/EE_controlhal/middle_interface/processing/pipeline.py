@@ -61,7 +61,7 @@ class TeleopPipeline:
         )
         self._get_robot_pose = get_robot_pose
         self.command_transform = CoordinateTransform.from_config(transform_cfg)
-        self.head_base = HeadBase()
+        self.head_base = HeadBase.from_config(teleop)
         self.clutch = Clutch(
             press_threshold=float(
                 teleop.get(
@@ -129,7 +129,12 @@ class TeleopPipeline:
 
     def process(self, packet: PicoTeleopPacket) -> PipelineResult:
         ctrl = packet.controller(self.controller)
-        tracking_ok = bool(ctrl.valid)
+        # In two-tracker mode, the body tracker defines the yaw frame.  Never
+        # produce hand commands from HeadBase's last cached frame after it is
+        # lost: that would make a later hand motion use a stale body heading.
+        tracking_ok = bool(ctrl.valid) and (
+            not self.head_base_enabled or bool(packet.hmd.valid)
+        )
         prev = self.safety.state
         self.safety.on_connected()
 
@@ -157,18 +162,22 @@ class TeleopPipeline:
             )
 
         if not tracking_ok:
-            # Brief loss: skip this increment, keep robot/VR baselines.
-            # A real drop is handled by on_timeout, not by zeroing the clutch.
-            self.filt.reset()
+            # Stop the backend's streaming target on the first lost frame.  A
+            # hand-only packet is insufficient when HeadBase supplies yaw.
+            # Requiring a deadman release prevents automatic resume when the
+            # tracker comes back while the key/button is still held.
+            should_stop = self.clutch.active or self.safety.state == TeleopState.TELEOP_ACTIVE
+            self._reset_motion()
+            self.safety.on_tracking_lost()
             self._log_state(prev)
             return PipelineResult(
                 self.safety.state,
                 None,
-                False,
+                should_stop,
                 SafetyReason.TRACKING_LOST,
-                self.clutch.active,
                 False,
-                self.clutch.robot_ref,
+                False,
+                None,
                 None,
             )
 

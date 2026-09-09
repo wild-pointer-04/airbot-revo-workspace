@@ -7,22 +7,20 @@ cd /home/ubuntu/airbot+hand-workspace/Data_Collection
 python3 collect/collect.py --task pick_cup
 ```
 
-真机默认订 ROS2 `/arm/state`（关节角 + 末端），由 `EE_controlhal/VIVE_control` 或 PICO `middle_interface` 发布。采集器只订阅后写入 LeRobot。
+真机默认订 ROS2 `/arm/state`（关节角 + 末端），由 `EE_controlhal/VIVE_control_openvr` 或 PICO `middle_interface` 发布。采集器只订阅后写入 LeRobot。
 
 ## 真机（ROS2）
 
 先起 AIRBOT 和遥操（会发 `/arm/state`），再采：
 
 ```bash
-source /opt/ros/humble/setup.bash
-
-# 终端 1：VIVE 遥操（绑身上 = 头显，手持 = 手柄）
-cd ../EE_controlhal/VIVE_control
-python3 app.py --config config/teleop.yaml
+# 终端 1：VIVE OpenVR 遥操（宿主机；body=头显，right_wrist=手柄）
+cd ../EE_controlhal/VIVE_control_openvr
+python3 scripts/run_vive_teleop.py --real-arm
 
 # 终端 2：采集
 cd ../../Data_Collection
-python3 collect/collect.py --task pick_cup
+.venv-collect/bin/python collect/collect.py --task pick_cup
 ```
 
 或：

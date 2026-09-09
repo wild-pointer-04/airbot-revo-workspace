@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -29,10 +30,12 @@ def test_mock_source_builds_pico_packet() -> None:
     source.start()
     try:
         packet = None
-        for _ in range(20):
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
             packet = source.poll_latest()
             if packet is not None and packet.hmd.valid and packet.right_controller.valid:
                 break
+            time.sleep(0.005)
         assert packet is not None
         assert packet.protocol == "pico_teleop"
         assert packet.hmd.valid

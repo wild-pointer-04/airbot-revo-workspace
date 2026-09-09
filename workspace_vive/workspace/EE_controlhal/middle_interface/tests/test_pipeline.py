@@ -44,6 +44,7 @@ def _packet(
     trigger: float = 0.0,
     grip: float = 0.0,
     valid: bool = True,
+    hmd_valid: bool = True,
     right_primary: bool = False,
 ) -> PicoTeleopPacket:
     ident = np.array([0.0, 0.0, 0.0, 1.0])
@@ -53,7 +54,7 @@ def _packet(
         seq=seq,
         device_time_ns=1,
         wall_time_unix_ms=1,
-        hmd=HeadState(True, np.array([0.0, 1.6, 0.0]), ident),
+        hmd=HeadState(hmd_valid, np.array([0.0, 1.6, 0.0]), ident),
         left_controller=_ctrl([-0.2, 1.1, 0.25], 0.0),
         right_controller=_ctrl(
             right_pos,
@@ -113,7 +114,7 @@ def test_dummy_pipeline_deadman_and_stop():
     assert lost.command is None
 
 
-def test_tracking_lost_keeps_baseline():
+def test_tracking_loss_stops_and_requires_deadman_reengagement():
     config = _config()
     adapter = DummyRobotAdapter.from_config(config["robot"])
     adapter.connect()
@@ -128,12 +129,37 @@ def test_tracking_lost_keeps_baseline():
 
     lost = pipe.process(_packet(4, [0.05, 1.2, 0.3], trigger=0.8, valid=False))
     assert lost.command is None
-    assert lost.clutch_active
-    assert pipe.safety.state.value == "TELEOP_ACTIVE"
+    assert lost.should_stop
+    assert not lost.clutch_active
+    assert pipe.safety.state.value == "PAUSED"
+    adapter.stop()
 
-    back = pipe.process(_packet(5, [0.05, 1.2, 0.3], trigger=0.8))
-    assert back.command is not None
-    np.testing.assert_allclose(back.command.position, held, atol=1e-6)
+    still_held = pipe.process(_packet(5, [0.05, 1.2, 0.3], trigger=0.8))
+    assert still_held.command is None
+
+    released = pipe.process(_packet(6, [0.05, 1.2, 0.3], trigger=0.0))
+    assert released.command is None
+    reengaged = pipe.process(_packet(7, [0.05, 1.2, 0.3], trigger=0.8))
+    assert reengaged.command is not None
+    np.testing.assert_allclose(reengaged.command.position, held, atol=1e-6)
+
+
+def test_body_tracker_loss_blocks_two_tracker_commands():
+    config = _config()
+    adapter = DummyRobotAdapter.from_config(config["robot"])
+    adapter.connect()
+    pipe = TeleopPipeline(config, adapter.get_ee_pose)
+
+    pipe.process(_packet(1, [0.0, 1.2, 0.3], trigger=0.8))
+    pipe.process(_packet(2, [0.0, 1.2, 0.3], trigger=0.8))
+    lost = pipe.process(
+        _packet(3, [0.0, 1.2, 0.3], trigger=0.8, hmd_valid=False)
+    )
+
+    assert not lost.tracking_ok
+    assert lost.command is None
+    assert lost.should_stop
+    assert lost.reason.value == "tracking_lost"
 
 
 def test_timeout_stops_commands():

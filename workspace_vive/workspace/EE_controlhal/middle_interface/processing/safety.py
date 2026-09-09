@@ -49,6 +49,13 @@ class SafetyStateMachine:
             self.reason = SafetyReason.NONE
         return self.state
 
+    def on_tracking_lost(self) -> TeleopState:
+        """Hold motion until the operator releases and re-engages deadman."""
+        if self.state == TeleopState.TELEOP_ACTIVE:
+            self.state = TeleopState.PAUSED
+        self.reason = SafetyReason.TRACKING_LOST
+        return self.state
+
     def trip(self, reason: SafetyReason) -> TeleopState:
         self.state = TeleopState.ERROR
         self.reason = reason

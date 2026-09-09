@@ -127,7 +127,10 @@ def test_live_yaml_uses_gen1_not_other_room_gen2() -> None:
     assert "--lighthouse-3-disable" in raw
     assert "--ootx-ignore-sync-error" in raw
     assert "--force-ootx" not in raw
+    assert "--init-configfile" not in raw
     args = resolve_libsurvive_extra_args(raw, config_dir=ROOT / "config")
+    calibration = ROOT / "config" / "libsurvive_calibration.json"
+    assert args[args.index("--configfile") + 1] == str(calibration)
     for idx in range(2, 16):
         assert f"--lighthouse-{idx}-disable" in args
     assert "--lighthouse-0-disable" not in args

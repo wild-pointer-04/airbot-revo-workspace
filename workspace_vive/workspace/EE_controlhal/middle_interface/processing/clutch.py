@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,6 +18,8 @@ from processing.math_pose import (
     quat_slerp,
 )
 from protocol.pico_packet import Pose
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -158,16 +161,13 @@ class Clutch:
                 identity_quat(), delta_rot, self.max_delta_angle / angle
             )
 
-        # DEBUG: 记录转换前后的增量
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"[CLUTCH DEBUG] delta_pos BEFORE transform: {delta_pos}")
+        logger.debug("[CLUTCH] delta_pos before transform: %s", delta_pos)
 
         if self.command_transform is not None:
             delta_pos = self.command_transform.transform_position(delta_pos)
             delta_rot = self.command_transform.transform_rotation(delta_rot)
-            logger.info(f"[CLUTCH DEBUG] delta_pos AFTER transform:  {delta_pos}")
-            logger.info(f"[CLUTCH DEBUG] transform matrix R:\n{self.command_transform.R}")
+            logger.debug("[CLUTCH] delta_pos after transform: %s", delta_pos)
+            logger.debug("[CLUTCH] transform matrix R:\n%s", self.command_transform.R)
 
         return (
             Pose(

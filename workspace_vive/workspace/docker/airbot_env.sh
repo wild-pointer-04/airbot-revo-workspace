@@ -7,7 +7,7 @@ if [ -f /opt/ros/jazzy/setup.bash ]; then
     set +u
 fi
 
-export AIRBOT_WORKSPACE="${AIRBOT_WORKSPACE:-/home/dt/manus-Revo2-Revo3/airbot+hand-workspace}"
+export AIRBOT_WORKSPACE="${AIRBOT_WORKSPACE:-/home/ubuntu/workspace}"
 export VIRTUAL_ENV=/opt/airbot-venv
 case ":${PATH}:" in
     *":${VIRTUAL_ENV}/bin:"*) ;;

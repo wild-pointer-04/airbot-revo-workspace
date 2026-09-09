@@ -3,7 +3,7 @@
 合工作区里的臂侧：VR 追踪 → Python 中间层 → 官方 sidecar gRPC → CAN → AIRBOT Play 6 轴。  
 **臂控制链路不走 ROS topic。** 末端夹爪在配置里是 `enable_eef: false`，握把命令会被丢掉；灵巧手走旁边的 Revo2 链路。
 
-两套遥操输入：**PICO**（`EE_controlhal/middle_interface`，头显 UDP）和 **VIVE**（`EE_controlhal/VIVE_control`，libsurvive 双 tracker）。数采在 `Data_Collection/`，经 ROS topic `/arm/state` 拿臂状态 —— 这是唯一用到 ROS 的地方。
+两套遥操输入：**PICO**（`EE_controlhal/middle_interface`，头显 UDP）和 **VIVE**（`VIVE_control_openvr` = 宿主机 SteamVR/OpenVR）。数采在 `Data_Collection/`，经 ROS topic `/arm/state` 拿臂状态 —— 这是唯一用到 ROS 的地方。
 
 合容器总启动顺序见上一级 [README.md](../README.md)。
 
@@ -22,10 +22,9 @@ airbot+hand-workspace/
       app.py
       config/airbot.yaml         真机
       config/default.yaml        dummy 空跑
-    VIVE_control/                libsurvive 双 tracker → 同一条流水线
-      app.py
-      config/tracker.yaml        追踪后端与 WM0/WM1 映射
-      config/teleop.yaml         真机标定（可达框、Δ 限幅）
+    VIVE_control_openvr/         SteamVR/OpenVR 双 tracker（宿主机）
+      scripts/run_vive_teleop.py
+      config/tracker.yaml / teleop.yaml
     Robot_control_interface/
       backends/airbot_sdk.py     airbot_py → localhost:50051
       config/airbot_sdk.yaml
@@ -74,7 +73,8 @@ Python：合容器 PATH 里的 `/opt/airbot-venv`（`airbot_py 5.1.6`）。
    ```bash
    adb shell am start -n com.egoarx.picoteleopue/com.unity3d.player.UnityPlayerActivity
    ```
-5. **遥操进程（必须占着终端看日志）**
+5. **遥操进程（必须占着终端看日志）**  
+   `docker exec` 必须写成：`选项 + 容器名 + 命令`（只写 `-w` 会报 `requires at least 2 arguments`）。
    ```bash
    docker exec -it -w /home/ubuntu/airbot+hand-workspace/EE_controlhal/middle_interface \
      airbot-revo-humble python3 app.py --config config/airbot.yaml
@@ -93,24 +93,20 @@ Python：合容器 PATH 里的 `/opt/airbot-venv`（`airbot_py 5.1.6`）。
 
 ## VIVE 遥操（替代 PICO 的输入）
 
-不需要头显和 adb，改用 2 个 Watchman Dongle + libsurvive 读双 tracker。前 3 步（CAN、`teleop_up.sh`）和 PICO 一样，第 5 步换成：
+不需要头显和 adb。SteamVR 必须在**宿主机**跑（不要装进容器）。前几步（CAN、`teleop_up.sh`）和 PICO 一样。
 
 ```bash
-docker exec -it -w /home/ubuntu/airbot+hand-workspace/EE_controlhal/VIVE_control \
-  airbot-revo-humble python3 app.py --config config/teleop.yaml
+cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/EE_controlhal/VIVE_control_openvr
+./scripts/start_steamvr.sh
+./scripts/close_room_setup.sh
+python3 scripts/list_trackers.py
+python3 scripts/run_vive_teleop.py              # 默认 dummy
+# python3 scripts/run_vive_teleop.py --real-arm # 需 airbot_py + :50051
 ```
 
-开录前先确认硬件和位姿（在宿主机跑，`pysurvive` 装在宿主机）：
+Null Driver 下的 Error 496（Failed to connect to headset display）可忽略。详见 [VIVE_control_openvr/README.md](EE_controlhal/VIVE_control_openvr/README.md)。
 
-```bash
-cd EE_controlhal/VIVE_control
-bash scripts/check_hardware.sh                       # dongle / hidraw / libsurvive
-python3 scripts/monitor_pose.py --duration 10        # 实时位姿，默认 hand_controller
-```
-
-`monitor_pose` 只报 `Could not find disambiguator state` 说明 tracker 收不到基站同步光 —— **基站没上电或不在视野内**，这时 tracker 本身是正常的。
-
-坐标系在 `middle_interface/config` 里由 `vr_space` 指定：PICO 用 `unity`，VIVE/libsurvive 用 `steamvr`。
+坐标系：`vr_space` — PICO=`unity`，OpenVR=`steamvr`。
 
 ## 数采
 

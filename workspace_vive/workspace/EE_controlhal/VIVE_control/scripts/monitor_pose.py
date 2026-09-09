@@ -18,7 +18,11 @@ from vive_tracking.tracker_manager import TrackerManager, load_config, setup_log
 def main() -> int:
     parser = argparse.ArgumentParser(description="Monitor VIVE Tracker pose")
     parser.add_argument("--config", type=Path, default=ROOT / "config" / "tracker.yaml")
-    parser.add_argument("--logical-name", default="dexterous_hand")
+    parser.add_argument(
+        "--logical-name",
+        default="hand_controller",
+        help="logical_name from config/tracker.yaml (default: hand_controller)",
+    )
     parser.add_argument("--duration", type=float, default=None, help="Seconds; omit to run until Ctrl+C")
     args = parser.parse_args()
 

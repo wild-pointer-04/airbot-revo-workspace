@@ -1,6 +1,7 @@
 """Two-tracker SteamVR / libsurvive → teleop_standard mapping.
 
-SteamVR / libsurvive (OpenXR Stage): +X right, +Y up, -Z forward.
+SteamVR (OpenXR Stage): +X right, +Y up, -Z forward.
+Native libsurvive: +Z up, with body heading supplied by HeadBase.
 teleop_standard:                      +X forward, +Y left, +Z up.
 
 Body tracker = HMD. Handheld tracker = right controller.
@@ -65,6 +66,7 @@ def _hand_rel(packet) -> Pose:
 
 
 def test_vive_aliases_use_openxr_stage_not_unity() -> None:
+    """SteamVR aliases use OpenXR; libsurvive preserves its Z-up world."""
     raw = Pose(np.array([0.10, 0.20, 0.30]), np.array([0.0, 0.0, 0.0, 1.0]))
     steamvr = to_teleop_pose(raw, "steamvr")
     vive = to_teleop_pose(raw, "vive")
@@ -74,11 +76,18 @@ def test_vive_aliases_use_openxr_stage_not_unity() -> None:
 
     np.testing.assert_allclose(steamvr.position, openxr.position)
     np.testing.assert_allclose(vive.position, openxr.position)
-    np.testing.assert_allclose(libsurvive.position, openxr.position)
-    # SteamVR (x,y,z) → (-z, -x, y); Unity → (z, -x, y)
+    np.testing.assert_allclose(libsurvive.position, raw.position)
+    # OpenXR (x,y,z) -> (-z,-x,y); Unity -> (z,-x,y).
     np.testing.assert_allclose(steamvr.position, [-0.30, -0.10, 0.20])
     np.testing.assert_allclose(unity.position, [0.30, -0.10, 0.20])
     assert not np.allclose(steamvr.position, unity.position)
+
+
+def test_libsurvive_is_z_up_identity() -> None:
+    raw = Pose(np.array([0.10, 0.20, 0.30]), np.array([0.0, 0.0, 0.0, 1.0]))
+    result = to_teleop_pose(raw, "libsurvive")
+    np.testing.assert_allclose(result.position, [0.10, 0.20, 0.30])
+    np.testing.assert_allclose(result.rotation, raw.rotation)
 
 
 def test_steamvr_basis_to_teleop() -> None:
@@ -144,6 +153,57 @@ def test_body_yaw_does_not_change_hand_relative() -> None:
     rel1 = _hand_rel(_packet(body1, hand1))
     np.testing.assert_allclose(rel0.position, rel1.position, atol=1e-8)
     np.testing.assert_allclose(np.abs(np.dot(rel0.rotation, rel1.rotation)), 1.0, atol=1e-8)
+
+
+def test_body_tracker_mount_rotation_is_applied_before_yaw_projection() -> None:
+    """A tracker mounted with local +Z forward still gives a body +X heading."""
+    from processing.math_pose import quat_from_matrix
+
+    # b = E t: body +X is tracker +Z, body +Y is tracker +Y, body +Z is tracker -X.
+    tracker_to_body = np.array(
+        [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]]
+    )
+    body = Pose(np.zeros(3), quat_from_matrix(tracker_to_body))
+    hand = Pose(np.array([0.40, 0.0, 0.0]), np.array([0.0, 0.0, 0.0, 1.0]))
+    relative = HeadBase(tracker_to_body).relative(body, True, hand)
+    np.testing.assert_allclose(relative.position, [0.40, 0.0, 0.0], atol=1e-9)
+
+
+def test_body_tracker_mount_accepts_full_matrix_from_config() -> None:
+    """The measured, non-permutation mount format has the same E convention."""
+    tracker_to_body = np.array(
+        [
+            [0.93969262, -0.34202014, 0.0],
+            [0.34202014, 0.93969262, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    body = Pose(np.zeros(3), np.array([0.0, 0.0, 0.0, 1.0]))
+    # A point directly in front of the body expressed in the tracking world.
+    hand = Pose(0.40 * tracker_to_body.T[:, 0], np.array([0.0, 0.0, 0.0, 1.0]))
+
+    relative = HeadBase.from_config(
+        {"head_tracker_to_body": {"rotation_matrix": tracker_to_body.tolist()}}
+    ).relative(body, True, hand)
+
+    np.testing.assert_allclose(relative.position, [0.40, 0.0, 0.0], atol=1e-8)
+
+
+def test_body_tracker_mount_keeps_the_legacy_axis_map_config() -> None:
+    head_base = HeadBase.from_config(
+        {
+            "head_tracker_to_body": {
+                "x": ["z", 1.0],
+                "y": ["y", 1.0],
+                "z": ["x", -1.0],
+            }
+        }
+    )
+
+    np.testing.assert_allclose(
+        head_base._tracker_to_body,
+        [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]],
+    )
 
 
 def test_identity_steamvr_pose_stays_identity_in_teleop() -> None:

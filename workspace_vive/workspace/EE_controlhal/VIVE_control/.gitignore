@@ -8,5 +8,6 @@ venv/
 data/*.csv
 !data/.gitkeep
 *.log
+config/libsurvive_calibration.json
 .idea/
 .vscode/

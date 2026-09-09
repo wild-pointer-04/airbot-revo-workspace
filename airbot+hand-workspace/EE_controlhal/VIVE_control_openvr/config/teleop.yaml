@@ -1,0 +1,89 @@
+# OpenVR / SteamVR teleop → same middle_interface pipeline as PICO / libsurvive VIVE.
+source: vive_openvr
+
+vive:
+  tracker_config: config/tracker.yaml
+  head: body
+  hand: right_wrist
+  timeout_sec: 0.5
+  rate_hz: 60
+
+# Deadman / clutch: left foot pedal (SayoDevice CM6K) hold = engage.
+# Confirm keycode with: python3 scripts/probe_pedal.py
+# Needs /dev/input access — install docs/99-sayodevice-pedal.rules (sudo once).
+buttons:
+  stdin: true
+  toggle_deadman_chars: [" "]   # Space still toggles if no pedal
+  pedal:
+    enabled: true
+    device: /dev/input/by-id/usb-SayoDevice_CM6K_*-event-kbd
+    deadman_keycode: KEY_1      # left pedal (confirmed via probe_pedal.py)
+    deadman_mode: hold          # press = clutch on, release = off
+
+network:
+  timeout_sec: 0.5
+
+teleop:
+  controller: "right"
+  deadman: "trigger"
+  deadman_press_threshold: 0.5
+  deadman_release_threshold: 0.3
+  require_deadman_release_on_start: true
+  gripper: "grip"
+  gripper_full_close: 0.85
+  position_scale: 1.0
+  # Position axes verified. Relative clutch cancels constant puck↔EE mount bias;
+  # if roll/pitch/yaw feel flipped, say which axis and we fix extrinsics / conjugation.
+  rotation_scale: 1.0
+  pause_button: "left_primary"
+  home_button: "right_primary"
+  head_base: true
+  head_base_yaw: world
+  # Empirically: UD OK with steamvr→teleop; 180° made FB+LR both reverse → use 0.
+  # Re-check with scripts/test_body_relative.py --axis-test if bases move.
+  head_yaw_offset_deg: 0.0
+  delay_vr_baseline: true
+  max_delta_position: 0.35
+  max_delta_angle: 1.50
+
+# True SteamVR standing / OpenXR Stage (Y-up). Not the libsurvive empirical map.
+transform:
+  vr_space: steamvr
+  axis_map:
+    x: ["x", 1.0]
+    y: ["y", 1.0]
+    z: ["z", 1.0]
+
+filter:
+  enabled: true
+  position_alpha: 0.25
+  rotation_alpha: 0.25
+
+limits:
+  enabled: false
+  max_linear_velocity: 0.20
+  max_angular_velocity: 0.15
+
+workspace:
+  enabled: true
+  stop_on_exceed: false
+  x: {min: 0.06, max: 0.50}
+  y: {min: -0.22, max: 0.22}
+  z: {min: 0.10, max: 0.50}
+
+robot:
+  # Default dummy for safe bring-up on the host. Switch to command_layer when
+  # airbot_py is available (container or host SDK) and play runtime :50051 is up.
+  # Override:  python3 scripts/run_vive_teleop.py --real-arm
+  adapter: "dummy"
+  command_layer: "../Robot_control_interface/config/airbot_sdk.yaml"
+  dummy_initial_position: [0.30, 0.0, 0.20]
+  dummy_initial_rotation: [0.0, 0.0, 0.0, 1.0]
+
+arm_state:
+  enabled: false
+  topic: /arm/state
+  hz: 50
+
+logging:
+  level: "INFO"

@@ -30,7 +30,15 @@ Ubuntu 24.04 不要安装 `libatlas-base-dev`。
 
 ## 校准文件
 
-第一次跑 libsurvive 时通常要做 Lighthouse 校准。配置一般在用户目录下，常见位置：
+第一次跑 libsurvive 时通常要做 Lighthouse 校准。本工程的容器路径使用
+`config/libsurvive_calibration.json` 持久化 OOTX 和两基站相对位姿；它由
+libsurvive 自动生成，属于当前机器和基站布局，已经被 Git 忽略。不要改名、
+删除或提交它。运行时使用 `--configfile` 读写同一个文件，并通过命令行指定
+`MPFIT` 和 `StateBased`；不能同时传入 `--init-configfile`，否则启动时只读取
+种子文件，跳过已保存的基站校准。旧 `libsurvive_runtime.json` 和本机生成的
+校准文件使用该版本 libsurvive 的配置片段格式，不能补最外层花括号。
+
+其他独立安装的 libsurvive 配置一般在用户目录下，常见位置：
 
 ```text
 ~/.config/survive/
@@ -41,8 +49,8 @@ Ubuntu 24.04 不要安装 `libatlas-base-dev`。
 
 要求：
 
-- 校准必须持久化
-- **不要自动删除** config
+- 校准必须持久化；容器内请确认 `config/libsurvive_calibration.json` 已生成
+- **不要自动删除** `config/libsurvive_calibration.json`
 - 本仓库的 Python 代码不会清理这些文件
 
 手动备份示例：

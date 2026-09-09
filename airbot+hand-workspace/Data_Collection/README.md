@@ -2,7 +2,7 @@
 
 采集 **图像 + 机械臂关节角 / 末端**，写入 LeRobot。只负责落盘，不做校验或可视化。
 
-遥操在 `EE_controlhal/VIVE_control`（或 PICO `middle_interface`），通过 `/arm/state` 把臂状态送给本目录。
+遥操在 `EE_controlhal/VIVE_control_openvr`（或 PICO `middle_interface`），通过 `/arm/state` 把臂状态送给本目录。
 
 采集器跑在**自己的 Python 3.12 环境** `.venv-collect` 里，经 rosbridge websocket 取臂状态 —— 因为遥操合容器是 ROS 2 Humble / Python 3.10，而 `vendor/lerobot-main` 要求 Python ≥ 3.12。
 
@@ -52,7 +52,7 @@ Data_Collection/
 |------------|------|
 | 开始录 | `collect/collect.py` |
 | 改相机 SN、臂状态来源 | `collect/config/collect.yaml` |
-| VIVE 遥操 | `../EE_controlhal/VIVE_control` |
+| VIVE 遥操 | `../EE_controlhal/VIVE_control_openvr` |
 
 ---
 

@@ -1,0 +1,41 @@
+# SteamVR / OpenVR tracker roles.
+# Bind by permanent LHR- serial only — never by OpenVR device index.
+trackers:
+  body:
+    serial: "LHR-CB0CFB64"
+    enabled: true
+  right_wrist:
+    serial: "LHR-15A9EB13"
+    enabled: true
+  left_wrist:
+    serial: ""
+    enabled: false
+
+# Mount corrections: T_world_semantic = T_world_tracker @ T_tracker_semantic.
+# Keep identity until a measured calibration exists (do not copy Wuji numbers).
+extrinsics:
+  body:
+    translation: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+  right_wrist:
+    translation: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+  left_wrist:
+    translation: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+
+tracking:
+  # OpenVR absolute pose universe (standing / seated).
+  universe: standing
+  polling_rate_hz: 120
+  stale_timeout_ms: 100
+
+# Raw SteamVR first; enable only after quality scripts look clean.
+filter:
+  enabled: false
+  position_alpha: 0.25
+  orientation_alpha: 0.25
+  filter_orientation: true
+
+logging:
+  level: INFO

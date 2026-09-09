@@ -24,19 +24,25 @@ teleop:
   home_button: "right_primary"
   # Body tracker = HMD heading; hand tracker is relative to that yaw.
   head_base: true
+  # b = E t: maps the body-trackers local coordinates t into body coordinates
+  # b (+X forward, +Y left, +Z up). Identity is correct only when the tracker
+  # housing is mounted with those three axes aligned. The offline mount
+  # calibration writes a validated full matrix here as rotation_matrix; it is
+  # used only to derive the body yaw frame.
+  head_tracker_to_body:
+    x: ["x", 1.0]
+    y: ["y", 1.0]
+    z: ["z", 1.0]
   delay_vr_baseline: true
   max_delta_position: 0.0
   max_delta_angle: 0.0
 
-# libsurvive / SteamVR is OpenXR Stage: +X right, +Y up, -Z forward.
-# After vr_normalize + head_base: teleop_standard is body-relative: +X forward, +Y left, +Z up
-# Identity mapping because teleop_standard already matches robot frame convention
 transform:
-  vr_space: steamvr
+  vr_space: libsurvive
   axis_map:
-    x: ["x", 1.0]   # robot forward ← teleop forward
-    y: ["y", 1.0]   # robot left ← teleop left
-    z: ["z", 1.0]   # robot up ← teleop up
+    x: ["z", -1.0]
+    y: ["y", 1.0]
+    z: ["x", 1.0]
 
 filter:
   enabled: true

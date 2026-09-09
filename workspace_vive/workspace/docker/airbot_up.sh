@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-WORKSPACE="${AIRBOT_WORKSPACE:-/home/dt/manus-Revo2-Revo3/airbot+hand-workspace}"
+WORKSPACE="${AIRBOT_WORKSPACE:-/home/ubuntu/workspace}"
 STATE_DIR="${WORKSPACE}/.runtime"
 LOG_DIR="${WORKSPACE}/logs/airbot"
 CID_FILE="${STATE_DIR}/airbot_server.cid"

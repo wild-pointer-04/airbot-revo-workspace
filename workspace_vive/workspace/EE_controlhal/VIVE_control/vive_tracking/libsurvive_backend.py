@@ -41,6 +41,7 @@ Then rerun the program.
 _RUNTIME_ALIASES = {"T0", "T1", "T2", "T3", "WM0", "WM1", "WM2", "WM3", "HMD"}
 _POLL_S = 0.002
 _STALE_S = 0.25
+_CLOSE_TIMEOUT_S = 1.0
 _VIVE_CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 _PATH_FLAGS = {"--steamvr-calibration", "--init-configfile", "--configfile"}
 _UNUSED_LH_DISABLE_FROM = 2
@@ -161,7 +162,7 @@ class LibsurviveBackend(TrackerBackend):
 
     def _to_pose(self, sample: _PoseSample) -> TrackerPose:
         serial = sample.serial
-        if serial in _RUNTIME_ALIASES:
+        if _is_runtime_alias(serial):
             LOGGER.warning(
                 "libsurvive reported runtime alias %s; prefer LHR-XXXXXXXX as the permanent ID",
                 serial,
@@ -240,10 +241,18 @@ def resolve_libsurvive_extra_args(
     raw: list[Any],
     *,
     config_dir: Optional[Path] = None,
+    lighthouse_calibration: bool = False,
 ) -> list[str]:
     """Resolve relative libsurvive paths; disable unused LH channels for gen 1/2."""
     base = Path(config_dir) if config_dir is not None else _VIVE_CONFIG_DIR
     extra = [str(a) for a in raw]
+    if lighthouse_calibration:
+        # Calibration must be able to update lighthouse poses.  The normal
+        # teleop configuration deliberately contains this flag to keep the
+        # saved geometry fixed.
+        extra = [item for item in extra if item != "--disable-calibrate"]
+        if "--force-calibrate" not in extra:
+            extra.append("--force-calibrate")
     out: list[str] = []
     pending_path = False
     for item in extra:
@@ -320,7 +329,35 @@ def _find_libsurvive_so() -> Optional[Path]:
     return None
 
 
-def _extract_serial(obj: Any, fallback_name: str) -> str:
+def _decode_text(value: Any) -> str:
+    """Decode libsurvive's ``char *`` values without producing ``b'...'``."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").strip()
+    if isinstance(value, (bytearray, memoryview)):
+        return bytes(value).decode("utf-8", errors="replace").strip()
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _object_name(obj: Any) -> str:
+    name = getattr(obj, "Name", None)
+    if callable(name):
+        try:
+            return _decode_text(name())
+        except Exception:
+            return ""
+    return _decode_text(obj)
+
+
+def _extract_serial(
+    obj: Any,
+    fallback_name: str,
+    native_serial: Any = None,
+) -> str:
+    values = [native_serial]
     for attr in ("serial", "serial_number", "Serial", "codename"):
         value = getattr(obj, attr, None)
         if callable(value):
@@ -328,13 +365,90 @@ def _extract_serial(obj: Any, fallback_name: str) -> str:
                 value = value()
             except Exception:
                 value = None
-        if isinstance(value, bytes):
-            value = value.decode("utf-8", errors="replace")
-        if isinstance(value, str) and value.strip():
-            text = value.strip()
-            if text.upper().startswith("LHR-") or text not in _RUNTIME_ALIASES:
-                return text
-    return fallback_name
+        values.append(value)
+    for value in values:
+        text = _decode_text(value)
+        if text and (text.upper().startswith("LHR-") or not _is_runtime_alias(text)):
+            return text
+    return _decode_text(fallback_name)
+
+
+def _is_runtime_alias(value: str) -> bool:
+    """Whether libsurvive has not resolved this object to an LHR serial yet."""
+    upper = value.strip().upper()
+    return (
+        upper in _RUNTIME_ALIASES
+        or (upper.startswith("T") and upper[1:].isdigit())
+        or (upper.startswith("WM") and upper[2:].isdigit())
+    )
+
+
+def _pysurvive_native_serial(pysurvive: Any, obj: Any) -> Any:
+    """Return the simple API serial, which ``SimpleObject`` does not expose."""
+    ptr = getattr(obj, "ptr", None)
+    if ptr is None:
+        return None
+    for name in ("simple_serial_number", "survive_simple_serial_number"):
+        fn = getattr(pysurvive, name, None)
+        if callable(fn):
+            try:
+                return fn(ptr)
+            except Exception:
+                continue
+    return None
+
+
+def _pysurvive_object_type(pysurvive: Any, obj: Any) -> Optional[int]:
+    """Read an object's simple-API type across pysurvive binding variants."""
+    for attr in ("Type", "type", "object_type"):
+        value = getattr(obj, attr, None)
+        if callable(value):
+            try:
+                value = value()
+            except Exception:
+                value = None
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                pass
+
+    ptr = getattr(obj, "ptr", None)
+    if ptr is None:
+        return None
+    for name in ("simple_object_get_type", "survive_simple_object_get_type"):
+        fn = getattr(pysurvive, name, None)
+        if callable(fn):
+            try:
+                return int(fn(ptr))
+            except (TypeError, ValueError):
+                return None
+            except Exception:
+                continue
+    return None
+
+
+def _is_lighthouse(pysurvive: Any, obj: Any, name: str) -> bool:
+    object_type = _pysurvive_object_type(pysurvive, obj)
+    lighthouse_type = getattr(
+        pysurvive,
+        "SimpleObject_LIGHTHOUSE",
+        getattr(pysurvive, "SurviveSimpleObject_LIGHTHOUSE", _SURVIVE_OBJECT_LIGHTHOUSE),
+    )
+    try:
+        if object_type == int(lighthouse_type):
+            return True
+    except (TypeError, ValueError):
+        if object_type == _SURVIVE_OBJECT_LIGHTHOUSE:
+            return True
+
+    upper_name = _decode_text(name).upper()
+    # Lighthouses are named LH0/LH1 or LHB-...; do not confuse a tracker
+    # serial such as LHR-XXXXXXXX with a lighthouse.
+    return (
+        upper_name.startswith("LH")
+        and not upper_name.startswith("LHR-")
+    )
 
 
 def _extract_sensor_timestamp(obj: Any, pose_result: Any) -> Optional[float]:
@@ -357,6 +471,42 @@ def _extract_sensor_timestamp(obj: Any, pose_result: Any) -> Optional[float]:
     return None
 
 
+def _has_initialized_pose(pose_result: Any) -> bool:
+    """Reject libsurvive's zero/identity placeholder before a poser solves."""
+    pose_obj = pose_result[0] if isinstance(pose_result, tuple) else pose_result
+    try:
+        position = _as_xyz(getattr(pose_obj, "Pos", pose_obj))
+        rotation = _as_wxyz(getattr(pose_obj, "Rot", None))
+    except (TypeError, ValueError, BackendInitError):
+        return False
+    epsilon = 1e-8
+    position_is_zero = all(abs(value) <= epsilon for value in position)
+    rotation_is_identity = (
+        abs(abs(rotation[0]) - 1.0) <= epsilon
+        and all(abs(value) <= epsilon for value in rotation[1:])
+    )
+    rotation_is_zero = all(abs(value) <= epsilon for value in rotation)
+    return not (position_is_zero and (rotation_is_identity or rotation_is_zero))
+
+
+def _close_with_timeout(close_fn: Any, name: str) -> None:
+    """Do not let a third-party libsurvive shutdown block teleop termination."""
+    completed = threading.Event()
+
+    def _run() -> None:
+        try:
+            close_fn()
+        except Exception as exc:
+            LOGGER.warning("pysurvive close via %s failed: %s", name, exc)
+        finally:
+            completed.set()
+
+    thread = threading.Thread(target=_run, name="pysurvive-close", daemon=True)
+    thread.start()
+    if not completed.wait(_CLOSE_TIMEOUT_S):
+        LOGGER.warning("pysurvive close via %s timed out after %.1f s", name, _CLOSE_TIMEOUT_S)
+
+
 class _PysurviveImpl(_SurviveImpl):
     kind = "pysurvive"
 
@@ -364,9 +514,15 @@ class _PysurviveImpl(_SurviveImpl):
         self._pysurvive = pysurvive
         self._ls_cfg = ls_cfg
         self._ctx: Any = None
+        self._known_serials: dict[str, bool] = {}
+        self._last_sensor_timestamp: dict[str, float] = {}
+        self._last_polled_serial: Optional[str] = None
 
     def start(self) -> None:
-        extra = resolve_libsurvive_extra_args(self._ls_cfg.get("extra_args") or [])
+        extra = resolve_libsurvive_extra_args(
+            self._ls_cfg.get("extra_args") or [],
+            lighthouse_calibration=bool(self._ls_cfg.get("lighthouse_calibration", False)),
+        )
         LOGGER.info("libsurvive argv extra=%s", extra)
         argv = [sys.argv[0], *extra]
         context_cls = getattr(self._pysurvive, "SimpleContext", None)
@@ -382,17 +538,91 @@ class _PysurviveImpl(_SurviveImpl):
         if callable(running) and not running():
             threading.Event().wait(timeout_s)
             return None
-        updated = ctx.NextUpdated()
-        if updated is None:
-            threading.Event().wait(timeout_s)
+
+        # pysurvive's ``SimpleContext.NextUpdated()`` has blocked indefinitely
+        # on some installed bindings when no tracker pose arrives.  The simple
+        # API exposes the latest pose for every live object, so poll that API
+        # directly and use the pose timecode as the update marker.  This keeps
+        # the reader thread bounded and lets ``LibsurviveBackend.stop()`` join.
+        objects = self._tracker_objects(ctx)
+        if objects:
+            start = 0
+            if self._last_polled_serial is not None:
+                for index, (serial, _obj) in enumerate(objects):
+                    if serial == self._last_polled_serial:
+                        start = (index + 1) % len(objects)
+                        break
+
+            for offset in range(len(objects)):
+                serial, obj = objects[(start + offset) % len(objects)]
+                sample = self._sample_from_object(serial, obj)
+                if sample is not None:
+                    self._last_polled_serial = serial
+                    return sample
+
+        threading.Event().wait(timeout_s)
+        return None
+
+    def list_serials(self) -> list[tuple[str, bool]]:
+        ctx = self._ctx
+        if ctx is None:
+            return []
+        # ``SimpleContext.Objects()`` is a startup-time snapshot in pysurvive
+        # 1.1.204. USB trackers can appear after that snapshot, so enumerate
+        # the current C simple-API list on every request.
+        discovered = dict(self._known_serials)
+        for serial, obj in self._tracker_objects(ctx):
+            discovered[serial] = self._object_has_valid_pose(obj)
+        self._known_serials = discovered
+        return sorted(discovered.items())
+
+    def _tracker_objects(self, ctx: Any) -> list[tuple[str, Any]]:
+        """Return live tracker objects keyed by their stable serial number."""
+        objects: list[tuple[str, Any]] = []
+        seen_serials: set[str] = set()
+        for obj in self._current_objects(ctx):
+            name = _object_name(obj)
+            if _is_lighthouse(self._pysurvive, obj, name):
+                continue
+            serial = _extract_serial(
+                obj,
+                name,
+                _pysurvive_native_serial(self._pysurvive, obj),
+            )
+            # T20/T21 (and WMn) are libsurvive startup aliases. They may be
+            # emitted for a few reader iterations before the driver exposes
+            # its permanent LHR serial. Never publish them upstream: a later
+            # LHR update would otherwise leave an alias duplicate in _latest.
+            if not serial or _is_runtime_alias(serial) or serial in seen_serials:
+                continue
+            seen_serials.add(serial)
+            objects.append((serial, obj))
+        return objects
+
+    def _sample_from_object(self, serial: str, obj: Any) -> Optional[_PoseSample]:
+        pose_result = self._object_pose(obj)
+        if pose_result is None:
+            self._known_serials[serial] = False
             return None
-        name = str(updated.Name()) if callable(getattr(updated, "Name", None)) else str(updated)
-        serial = _extract_serial(updated, name)
-        pose_result = updated.Pose()
         pose_obj = pose_result[0] if isinstance(pose_result, tuple) else pose_result
-        pos = _as_xyz(getattr(pose_obj, "Pos", pose_obj))
-        rot = _as_wxyz(getattr(pose_obj, "Rot", None))
-        sensor_ts = _extract_sensor_timestamp(updated, pose_result)
+        sensor_ts = _extract_sensor_timestamp(obj, pose_result)
+        if sensor_ts is None or sensor_ts <= 0.0:
+            self._known_serials[serial] = False
+            return None
+        if not _has_initialized_pose(pose_result):
+            self._known_serials[serial] = False
+            return None
+
+        self._known_serials[serial] = True
+        if self._last_sensor_timestamp.get(serial) == sensor_ts:
+            return None
+        try:
+            pos = _as_xyz(getattr(pose_obj, "Pos", pose_obj))
+            rot = _as_wxyz(getattr(pose_obj, "Rot", None))
+        except (TypeError, ValueError, BackendInitError) as exc:
+            LOGGER.debug("pysurvive pose decode failed serial=%s: %s", serial, exc)
+            return None
+        self._last_sensor_timestamp[serial] = sensor_ts
         return _PoseSample(
             serial=serial,
             position=Vec3(*pos),
@@ -401,15 +631,63 @@ class _PysurviveImpl(_SurviveImpl):
             tracking_valid=True,
         )
 
-    def list_serials(self) -> list[tuple[str, bool]]:
-        ctx = self._ctx
-        if ctx is None or not hasattr(ctx, "Objects"):
-            return []
-        out: list[tuple[str, bool]] = []
-        for obj in ctx.Objects():
-            name = str(obj.Name()) if callable(getattr(obj, "Name", None)) else str(obj)
-            out.append((_extract_serial(obj, name), True))
-        return out
+    @staticmethod
+    def _object_pose(obj: Any) -> Any:
+        pose = getattr(obj, "Pose", None)
+        if not callable(pose):
+            return None
+        try:
+            return pose()
+        except Exception as exc:
+            LOGGER.debug("pysurvive pose read failed: %s", exc)
+            return None
+
+    def _object_has_valid_pose(self, obj: Any) -> bool:
+        pose_result = self._object_pose(obj)
+        if pose_result is None:
+            return False
+        sensor_ts = _extract_sensor_timestamp(obj, pose_result)
+        return (
+            sensor_ts is not None
+            and sensor_ts > 0.0
+            and _has_initialized_pose(pose_result)
+        )
+
+    def _current_objects(self, ctx: Any) -> list[Any]:
+        """Return live simple-API objects, falling back to the binding snapshot."""
+        objects: list[Any] = []
+        ptr = getattr(ctx, "ptr", None)
+        first = getattr(self._pysurvive, "simple_get_first_object", None)
+        next_object = getattr(self._pysurvive, "simple_get_next_object", None)
+        wrapper = getattr(self._pysurvive, "SimpleObject", None)
+        if ptr is not None and callable(first) and callable(next_object):
+            try:
+                current = first(ptr)
+                # An upper bound protects against a malformed third-party
+                # binding returning the same non-null object indefinitely.
+                for _ in range(1024):
+                    if not current:
+                        break
+                    try:
+                        obj = wrapper(current) if callable(wrapper) else current
+                    except Exception:
+                        obj = current
+                    objects.append(obj)
+                    current = next_object(ptr, current)
+                # The raw simple API is authoritative. ``Objects()`` can be
+                # an earlier snapshot whose entries retain runtime aliases
+                # such as T20/T21, creating duplicate devices beside LHR IDs.
+                return objects
+            except Exception as exc:
+                LOGGER.debug("pysurvive live object enumeration failed: %s", exc)
+
+        snapshot = getattr(ctx, "Objects", None)
+        if callable(snapshot):
+            try:
+                objects.extend(snapshot())
+            except Exception as exc:
+                LOGGER.debug("pysurvive object snapshot failed: %s", exc)
+        return objects
 
     def close(self) -> None:
         ctx = self._ctx
@@ -419,14 +697,24 @@ class _PysurviveImpl(_SurviveImpl):
         for name in ("Close", "close", "Destroy"):
             fn = getattr(ctx, name, None)
             if callable(fn):
-                try:
-                    fn()
-                except Exception as exc:
-                    LOGGER.warning("pysurvive close via %s failed: %s", name, exc)
+                _close_with_timeout(fn, name)
                 return
+        ptr = getattr(ctx, "ptr", None)
+        close = getattr(self._pysurvive, "simple_close", None)
+        if ptr is not None and callable(close):
+            _close_with_timeout(lambda: close(ptr), "simple_close")
 
 
-class SurvivePoseC(ctypes.Structure):
+class SurvivePoseFloatC(ctypes.Structure):
+    """``SurvivePose`` when libsurvive was built with ``FLT=float``."""
+    _fields_ = [
+        ("Pos", ctypes.c_float * 3),
+        ("Rot", ctypes.c_float * 4),
+    ]
+
+
+class SurvivePoseDoubleC(ctypes.Structure):
+    """``SurvivePose`` when libsurvive was built with ``USE_DOUBLE``."""
     _fields_ = [
         ("Pos", ctypes.c_double * 3),
         ("Rot", ctypes.c_double * 4),
@@ -441,6 +729,18 @@ class _CtypesImpl(_SurviveImpl):
         self._ls_cfg = ls_cfg
         self._lib: Optional[ctypes.CDLL] = None
         self._ctx = None
+        scalar = str(ls_cfg.get("ctypes_scalar", "double")).strip().lower()
+        if scalar == "float":
+            self._scalar_ctype = ctypes.c_float
+            self._pose_type = SurvivePoseFloatC
+        elif scalar == "double":
+            self._scalar_ctype = ctypes.c_double
+            self._pose_type = SurvivePoseDoubleC
+        else:
+            raise BackendInitError(
+                "libsurvive.ctypes_scalar must be 'float' or 'double'"
+            )
+        self._scalar_name = scalar
 
     def start(self) -> None:
         lib = ctypes.CDLL(str(self._so_path))
@@ -455,11 +755,18 @@ class _CtypesImpl(_SurviveImpl):
         lib.survive_simple_object_name.argtypes = [ctypes.c_void_p]
         lib.survive_simple_serial_number.restype = ctypes.c_char_p
         lib.survive_simple_serial_number.argtypes = [ctypes.c_void_p]
-        lib.survive_simple_object_get_latest_pose.restype = ctypes.c_double
+        lib.survive_simple_object_get_latest_pose.restype = self._scalar_ctype
         lib.survive_simple_object_get_latest_pose.argtypes = [
             ctypes.c_void_p,
-            ctypes.POINTER(SurvivePoseC),
+            ctypes.POINTER(self._pose_type),
         ]
+        verify_flt_size = getattr(lib, "survive_verify_FLT_size", None)
+        if verify_flt_size is not None:
+            verify_flt_size.argtypes = [ctypes.c_uint32]
+            verify_flt_size.restype = None
+            # libsurvive fails immediately if this does not match the shared
+            # object's ABI, which is preferable to decoding corrupt poses.
+            verify_flt_size(ctypes.sizeof(self._scalar_ctype))
         lib.survive_simple_close.argtypes = [ctypes.c_void_p]
         lib.survive_simple_get_first_object.restype = ctypes.c_void_p
         lib.survive_simple_get_first_object.argtypes = [ctypes.c_void_p]
@@ -467,7 +774,10 @@ class _CtypesImpl(_SurviveImpl):
         lib.survive_simple_get_next_object.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         lib.survive_simple_object_get_type.restype = ctypes.c_int
         lib.survive_simple_object_get_type.argtypes = [ctypes.c_void_p]
-        extra = resolve_libsurvive_extra_args(self._ls_cfg.get("extra_args") or [])
+        extra = resolve_libsurvive_extra_args(
+            self._ls_cfg.get("extra_args") or [],
+            lighthouse_calibration=bool(self._ls_cfg.get("lighthouse_calibration", False)),
+        )
         LOGGER.info("libsurvive argv extra=%s", extra)
         argv_list = [sys.argv[0].encode(), *[a.encode() for a in extra]]
         argv = (ctypes.c_char_p * len(argv_list))(*argv_list)
@@ -498,7 +808,7 @@ class _CtypesImpl(_SurviveImpl):
             raw_name.decode("utf-8", errors="replace") if raw_name else ""
         ).strip()
         serial = serial_text or name_text or "unknown"
-        pose = SurvivePoseC()
+        pose = self._pose_type()
         timecode = lib.survive_simple_object_get_latest_pose(obj, ctypes.byref(pose))
         sensor_ts: Optional[float]
         try:
@@ -538,7 +848,7 @@ class _CtypesImpl(_SurviveImpl):
                 raw_name.decode("utf-8", errors="replace") if raw_name else ""
             ).strip()
             serial = serial_text or name_text or "unknown"
-            pose = SurvivePoseC()
+            pose = self._pose_type()
             timecode = lib.survive_simple_object_get_latest_pose(obj, ctypes.byref(pose))
             out.append((serial, bool(timecode)))
             obj = lib.survive_simple_get_next_object(ctx, obj)

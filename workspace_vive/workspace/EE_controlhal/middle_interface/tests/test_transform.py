@@ -143,3 +143,15 @@ def test_head_base_yaw_invariance():
     np.testing.assert_allclose(
         np.abs(np.dot(rel0.rotation, rel1.rotation)), 1.0, atol=1e-8
     )
+
+
+def test_airbot_command_axis_map_matches_the_measured_base_frame():
+    """AIRBOT SDK coordinates are +X down, +Y left, +Z forward."""
+    from processing.coordinate_transform import CoordinateTransform
+
+    transform = CoordinateTransform.from_config(
+        {"axis_map": {"x": ["z", -1.0], "y": ["y", 1.0], "z": ["x", 1.0]}}
+    )
+    np.testing.assert_allclose(transform.transform_position([1.0, 0.0, 0.0]), [0.0, 0.0, 1.0])
+    np.testing.assert_allclose(transform.transform_position([0.0, 1.0, 0.0]), [0.0, 1.0, 0.0])
+    np.testing.assert_allclose(transform.transform_position([0.0, 0.0, 1.0]), [-1.0, 0.0, 0.0])
