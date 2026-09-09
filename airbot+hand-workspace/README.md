@@ -3,7 +3,7 @@
 合工作区里的臂侧：VR 追踪 → Python 中间层 → 官方 sidecar gRPC → CAN → AIRBOT Play 6 轴。  
 **臂控制链路不走 ROS topic。** 末端夹爪在配置里是 `enable_eef: false`，握把命令会被丢掉；灵巧手走旁边的 Revo2 链路。
 
-两套遥操输入：**PICO**（`EE_controlhal/middle_interface`，头显 UDP）和 **VIVE**（`VIVE_control_openvr` = 宿主机 SteamVR/OpenVR）。数采在 `Data_Collection/`，经 ROS topic `/arm/state` 拿臂状态 —— 这是唯一用到 ROS 的地方。
+两套遥操输入：**PICO**（`EE_controlhal/middle_interface`，头显 UDP）和 **VIVE**（`VIVE_control_openvr` = 宿主机 SteamVR/OpenVR）。数采在 `Data_Collection/`，经 ROS topic 获取臂和 Revo2 手状态；VIVE 也通过 ROS topic 发布右脚踏的采集门控。
 
 合容器总启动顺序见上一级 [README.md](../README.md)。
 

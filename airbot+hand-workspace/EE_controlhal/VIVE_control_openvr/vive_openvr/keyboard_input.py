@@ -34,6 +34,7 @@ class TeleopButtons:
     grip: float = 0.0
     home: bool = False
     pause: bool = False
+    recording: bool = False
 
 
 def _resolve_pedal_device(pattern_or_path: str) -> Optional[str]:
@@ -97,6 +98,7 @@ class KeyboardButtons:
                 grip=self._buttons.grip,
                 home=self._buttons.home,
                 pause=self._buttons.pause,
+                recording=self._buttons.recording,
             )
             self._buttons.home = False
             self._buttons.pause = False
@@ -109,6 +111,7 @@ class KeyboardButtons:
         grip: float | None = None,
         home: bool | None = None,
         pause: bool | None = None,
+        recording: bool | None = None,
     ) -> None:
         with self._lock:
             if trigger is not None:
@@ -119,6 +122,12 @@ class KeyboardButtons:
                 self._buttons.home = bool(home)
             if pause is not None:
                 self._buttons.pause = bool(pause)
+            if recording is not None:
+                self._buttons.recording = bool(recording)
+
+    def recording_active(self) -> bool:
+        with self._lock:
+            return self._buttons.recording
 
     def _loop(self) -> None:
         assert self._fd is not None
@@ -167,10 +176,15 @@ class TeleopButtonSource:
         self._pedal_device_pat = str(
             pedal.get("device") or pedal.get("device_path") or DEFAULT_PEDAL_BY_ID
         )
-        # Left pedal → deadman. Override after probe_pedal.py if needed.
+        # Left pedal → arm deadman. Right pedal → hand-recording gate.
         self._pedal_deadman_code = str(pedal.get("deadman_keycode") or "KEY_1").upper()
         if not self._pedal_deadman_code.startswith("KEY_"):
             self._pedal_deadman_code = f"KEY_{self._pedal_deadman_code}"
+        self._pedal_recording_code = str(
+            pedal.get("recording_keycode") or "KEY_2"
+        ).upper()
+        if not self._pedal_recording_code.startswith("KEY_"):
+            self._pedal_recording_code = f"KEY_{self._pedal_recording_code}"
         mode = str(pedal.get("deadman_mode") or "hold").lower()
         self._pedal_hold = mode != "toggle"
 
@@ -229,6 +243,7 @@ class TeleopButtonSource:
                 grip=self._buttons.grip,
                 home=self._buttons.home,
                 pause=self._buttons.pause,
+                recording=self._buttons.recording,
             )
             self._buttons.home = False
             self._buttons.pause = False
@@ -241,6 +256,7 @@ class TeleopButtonSource:
         grip: float | None = None,
         home: bool | None = None,
         pause: bool | None = None,
+        recording: bool | None = None,
     ) -> None:
         with self._lock:
             if trigger is not None:
@@ -251,6 +267,12 @@ class TeleopButtonSource:
                 self._buttons.home = bool(home)
             if pause is not None:
                 self._buttons.pause = bool(pause)
+            if recording is not None:
+                self._buttons.recording = bool(recording)
+
+    def recording_active(self) -> bool:
+        with self._lock:
+            return self._buttons.recording
 
     def _set_trigger(self, value: float) -> None:
         with self._lock:
@@ -259,6 +281,10 @@ class TeleopButtonSource:
     def _toggle_trigger(self) -> None:
         with self._lock:
             self._buttons.trigger = 0.0 if self._buttons.trigger >= 0.5 else 1.0
+
+    def _set_recording(self, value: bool) -> None:
+        with self._lock:
+            self._buttons.recording = bool(value)
 
     def _stdin_loop(self) -> None:
         assert self._fd is not None
@@ -304,10 +330,11 @@ class TeleopButtonSource:
             return
 
         LOGGER.info(
-            "Foot pedal listening on %s (%s); deadman=%s mode=%s",
+            "Foot pedal listening on %s (%s); deadman=%s recording=%s mode=%s",
             device_path,
             getattr(dev, "name", "?"),
             self._pedal_deadman_code,
+            self._pedal_recording_code,
             "hold" if self._pedal_hold else "toggle",
         )
         try:
@@ -322,16 +349,19 @@ class TeleopButtonSource:
                     codes = [str(c).upper() for c in code]
                 else:
                     codes = [str(code).upper()]
-                if self._pedal_deadman_code not in codes:
-                    continue
-                # keystate: 0=up 1=down 2=hold
-                if self._pedal_hold:
-                    if key.keystate == 1:
-                        self._set_trigger(1.0)
-                    elif key.keystate == 0:
-                        self._set_trigger(0.0)
-                else:
-                    if key.keystate == 1:
+                if self._pedal_deadman_code in codes:
+                    # keystate: 0=up 1=down 2=hold
+                    if self._pedal_hold:
+                        if key.keystate == 1:
+                            self._set_trigger(1.0)
+                        elif key.keystate == 0:
+                            self._set_trigger(0.0)
+                    elif key.keystate == 1:
                         self._toggle_trigger()
+                elif self._pedal_recording_code in codes:
+                    if key.keystate == 1:
+                        self._set_recording(True)
+                    elif key.keystate == 0:
+                        self._set_recording(False)
         except OSError as exc:
             LOGGER.warning("Pedal read ended: %s", exc)

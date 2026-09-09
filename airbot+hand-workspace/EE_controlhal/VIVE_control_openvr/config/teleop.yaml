@@ -8,7 +8,7 @@ vive:
   timeout_sec: 0.5
   rate_hz: 60
 
-# Deadman / clutch: left foot pedal (SayoDevice CM6K) hold = engage.
+# SayoDevice CM6K: left pedal holds the arm deadman; right pedal gates hand recording.
 # Confirm keycode with: python3 scripts/probe_pedal.py
 # Needs /dev/input access — install docs/99-sayodevice-pedal.rules (sudo once).
 buttons:
@@ -18,7 +18,15 @@ buttons:
     enabled: true
     device: /dev/input/by-id/usb-SayoDevice_CM6K_*-event-kbd
     deadman_keycode: KEY_1      # left pedal (confirmed via probe_pedal.py)
+    recording_keycode: KEY_2    # right pedal (confirmed via probe_pedal.py)
     deadman_mode: hold          # press = clutch on, release = off
+
+# Published by the VIVE process, which is the only CM6K HID reader. The hand
+# collector subscribes through rosbridge and never opens /dev/input itself.
+hand_recording:
+  enabled: true
+  topic: /teleop/hand_recording
+  hz: 20
 
 network:
   timeout_sec: 0.5

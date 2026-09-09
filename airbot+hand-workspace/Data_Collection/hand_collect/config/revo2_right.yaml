@@ -1,0 +1,25 @@
+# Physical Revo2 feedback only. This topic is published by JointStateBroadcaster.
+task: record Revo2 right-hand physical joint feedback
+
+hand:
+  side: right
+  topic: /revo2_right/revo2_joint_state/joint_states
+  max_age_s: 0.2
+
+# The collector uses Python 3.12 and vendored LeRobot. rosbridge keeps it out of
+# the ROS 2 Humble Python 3.10 runtime.
+rosbridge:
+  host: localhost
+  port: 9090
+
+# Published by the VIVE process from the CM6K right pedal (KEY_2). A stale
+# message is treated as released, so VIVE/ROS failure stops frame writes.
+recording_gate:
+  topic: /teleop/hand_recording
+  max_age_s: 0.5
+
+dataset:
+  repo_id: revo2_right_feedback
+  # null writes to Data_Collection/data/lerobot/revo2_right_feedback.
+  root: null
+  fps: 10

@@ -32,6 +32,7 @@ from processing.safety import TeleopState
 from robot import create_adapter
 from vive_openvr.openvr_backend import OpenVRInitError
 from vive_openvr.packet_source import OpenVRPacketSource
+from vive_openvr.recording_pub import HAND_RECORDING_TOPIC, HandRecordingPublisher
 
 logger = logging.getLogger("vive_openvr_teleop")
 
@@ -103,6 +104,7 @@ def run(
         raise
 
     pub = None
+    recording_pub = None
     arm_cfg = dict(config.get("arm_state") or {})
     if bool(arm_cfg.get("enabled", False)):
         try:
@@ -117,8 +119,22 @@ def run(
         except Exception as exc:
             logger.warning("arm_state publisher unavailable: %s", exc)
 
+    recording_cfg = dict(config.get("hand_recording") or {})
+    if bool(recording_cfg.get("enabled", True)):
+        try:
+            recording_pub = HandRecordingPublisher(
+                source.recording_active,
+                topic=str(recording_cfg.get("topic") or HAND_RECORDING_TOPIC),
+                hz=float(recording_cfg.get("hz", 20)),
+            )
+            recording_pub.start()
+        except Exception as exc:
+            logger.warning("hand-recording publisher unavailable: %s", exc)
+            recording_pub = None
+
     logger.info(
-        "[TELEOP] %s  LeftPedal(hold)=deadman  Space=toggle  h=home  p=pause  g=gripper  "
+        "[TELEOP] %s  LeftPedal(hold)=deadman  RightPedal(hold)=hand-record  "
+        "Space=toggle  h=home  p=pause  g=gripper  "
         "head_base=%s yaw=%s offset=%.0f  vr_space=%s",
         pipeline.safety.state.value,
         pipeline.head_base_enabled,
@@ -190,6 +206,8 @@ def run(
     except KeyboardInterrupt:
         logger.info("shutting down")
     finally:
+        if recording_pub is not None:
+            recording_pub.stop()
         if pub is not None:
             pub.stop()
         adapter.stop()

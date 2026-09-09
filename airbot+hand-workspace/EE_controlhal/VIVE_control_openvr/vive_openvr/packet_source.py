@@ -131,6 +131,10 @@ class OpenVRPacketSource:
             return False
         return (time.monotonic() - self._last_packet_mono) > self.timeout_sec
 
+    def recording_active(self) -> bool:
+        """Return the right-pedal state without consuming one-shot buttons."""
+        return self._buttons.recording_active()
+
     def poll_latest(self) -> PicoTeleopPacket | None:
         head = self._manager.get_latest_pose(self._head_role)
         hand = self._manager.get_latest_pose(self._hand_role)
