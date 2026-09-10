@@ -1,41 +1,60 @@
-# Ego multimodal collector
-# 相机本地读；机械臂关节角 / 末端由 /arm/state 进入后落盘。
+# Ego multimodal collector: USB camera(s) + AIRBOT arm + Revo2 hand → LeRobot.
 
-task: pick_cup
+task: airbot_revo2_right
 mock: false
-# Empty = Data_Collection/data next to this repo, so the same config works on the
-# host and under the container mount. Override with --data-root or an absolute path.
+# Empty = Data_Collection/data next to this repo.
 data_root: null
 
-# 臂状态来源。遥操侧（VIVE/PICO）负责发布 /arm/state。
-#   rosbridge — 走 websocket 订 /arm/state。遥操容器是 ROS 2 Humble / Python 3.10，
-#               而 vendor 的 LeRobot 要 Python >= 3.12，所以采集器跑在自己的 3.12
-#               环境里，通过 rosbridge 跨进程拿臂状态。这是真机默认路径。
-#   ros2      — 直接用 rclpy 订阅。只有采集器和遥操在同一个 ROS 环境里才可用
-#               （此时落盘会退化成 JSONL，因为 3.10 跑不了 LeRobot）。
-#   local     — 本地假臂状态，无硬件自测用。
+# 臂状态来源。
+#   rosbridge — 默认。采集器跑 Python 3.12，经 websocket 订臂/手话题。
+#   ros2      — 同进程 rclpy（Humble/3.10 下 LeRobot 会退化成 JSONL）。
+#   local     — --mock 假臂/假手。
 state_source: rosbridge   # rosbridge | ros2 | local
 
 ros2:
   arm_topic: /arm/state
 
+hand:
+  enabled: true
+  side: right
+  topic: /revo2_right/revo2_joint_state/joint_states
+  tactile_topic: /revo2_right/revo2_joint_state/dynamic_joint_states
+  max_age_s: 0.2
+
 dataset:
-  repo_id: pick_cup
+  repo_id: airbot_revo2_right
   fps: 10
   use_videos: true
   # Empty = <data_root>/lerobot.
   root: null
 
+# 相机务必用 /dev/v4l/by-id/…，不要写 /dev/videoN（插拔后编号会变）。
+# 当前外接全局机：LRCP V1080P → video-index0；笔记本内置摄像头不要采。
 cameras:
-  cam_right_wrist:
-    serial_number: "130322270281"   # D405
+  cam_global:
+    type: opencv
+    device: /dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0
     width: 640
     height: 480
     fps: 30
-    enable_depth: false
+    enabled: true
+  # 右腕相机接上后取消注释，并把 device 改成对应 by-id：
+  # cam_right_wrist:
+  #   type: opencv
+  #   device: /dev/v4l/by-id/<腕部相机>-video-index0
+  #   width: 640
+  #   height: 480
+  #   fps: 30
+  #   enabled: true
 
-# host/port 同时供 state_source=rosbridge 的臂状态订阅使用。
-# enabled/topic 只管远程录制指令 /record_cmd，与臂状态无关。
+# VIVE 右踏板 → /teleop/hand_recording；松开自动 save_episode。
+recording_gate:
+  enabled: true
+  topic: /teleop/hand_recording
+  max_age_s: 0.5
+
+# host/port 同时供 state_source=rosbridge 与 recording_gate 使用。
+# enabled/topic 只管可选的字符串远程指令 /record_cmd。
 rosbridge:
   enabled: false
   host: localhost

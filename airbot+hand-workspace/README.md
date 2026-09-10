@@ -110,19 +110,14 @@ Null Driver 下的 Error 496（Failed to connect to headset display）可忽略�
 
 ## 数采
 
-图像 + 臂关节角/末端 → LeRobot（parquet + MP4）。臂状态由遥操侧发 `/arm/state`，采集器经 rosbridge 订阅。
-
-采集器跑在**宿主机自己的 Python 3.12 环境**里，不在合容器内 —— 因为 `vendor/lerobot-main` 要求 Python ≥ 3.12，而 Humble 只有 3.10。
+图像 + 臂关节角/末端 + Revo2 手反馈 → LeRobot（parquet + MP4）。状态经 rosbridge 订阅。
 
 ```bash
-# 1) 容器内起 rosbridge（常驻，一次即可）
-docker exec -d -u 0 airbot-revo-humble \
-  bash -lc 'exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml'
+# 推荐：一键 VIVE + 右手 + rosbridge
+./scripts/teleop_vive_hand_up.sh
 
-# 2) 起遥操（上面 PICO 或 VIVE 任一），它会发布 /arm/state
-
-# 3) 宿主机开录
-cd Data_Collection && .venv-collect/bin/python collect/collect.py --task pick_cup
+# 另开终端开录（右踏板门控）
+cd Data_Collection && .venv-collect/bin/python collect/collect.py --task airbot_revo2_right
 ```
 
-细节和字段说明见 [Data_Collection/README.md](Data_Collection/README.md)。
+细节见 [Data_Collection/README.md](Data_Collection/README.md)。

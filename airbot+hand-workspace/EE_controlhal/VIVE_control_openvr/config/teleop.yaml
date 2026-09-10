@@ -11,6 +11,7 @@ vive:
 # SayoDevice CM6K: left pedal holds the arm deadman; right pedal gates hand recording.
 # Confirm keycode with: python3 scripts/probe_pedal.py
 # Needs /dev/input access — install docs/99-sayodevice-pedal.rules (sudo once).
+# Stable path: see airbot+hand-workspace/docs/USB_DEVICES.md
 buttons:
   stdin: true
   toggle_deadman_chars: [" "]   # Space still toggles if no pedal
@@ -27,6 +28,8 @@ hand_recording:
   enabled: true
   topic: /teleop/hand_recording
   hz: 20
+  rosbridge_host: localhost
+  rosbridge_port: 9090
 
 network:
   timeout_sec: 0.5

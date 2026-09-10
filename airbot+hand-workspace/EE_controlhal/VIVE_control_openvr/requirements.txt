@@ -2,3 +2,4 @@ openvr>=2.0
 numpy>=1.24
 pyyaml>=6.0
 evdev>=1.6
+roslibpy>=1.8

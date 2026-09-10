@@ -55,11 +55,15 @@ def test_mock_episode_writes_camera_and_arm(tmp_path: Path) -> None:
     rows = [json.loads(line) for line in frames_path.read_text().splitlines() if line.strip()]
     assert len(rows) >= 5
     row = rows[-1]
-    assert "observation.images.cam_right_wrist" in row
+    assert "observation.images.cam_global" in row
     assert "observation.images.cam_high" not in row
     assert "observation.state.hand_angle" not in row
     assert "observation.state.gripper_pos" not in row
     assert "observation.state.vive_position" not in row
+    assert "observation.state.hand_right_joint" in row
+    assert len(row["observation.state.hand_right_joint"]) == 6
+    assert len(row["observation.state.hand_right_tactile"]) == 5
+    assert row["observation.state.hand_right_valid"][0] == pytest.approx(1.0)
     valid_rows = [r for r in rows if r["observation.state.arm_valid"][0] == 1.0]
     assert valid_rows, "expected at least one valid arm frame"
     row = valid_rows[-1]

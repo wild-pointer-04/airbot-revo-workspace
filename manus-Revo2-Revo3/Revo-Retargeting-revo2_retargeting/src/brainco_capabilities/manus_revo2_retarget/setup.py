@@ -26,6 +26,7 @@ setup(
         ('share/' + package_name + '/config', [
             'config/retarget.yaml',
             'config/teleop_controller.yaml',
+            'config/haptic_bridge.yaml',
         ]),
         ('share/' + package_name + '/launch', [
             'launch/pipeline_launch.py',
@@ -56,6 +57,7 @@ setup(
             'sim_manus_glove_publisher = manus_revo2_retarget.sim_manus_glove_publisher:main',
             'mujoco_joint_state_viewer = manus_revo2_retarget.mujoco_joint_state_viewer:main',
             'mujoco_manus_overlay_viewer = manus_revo2_retarget.mujoco_manus_overlay_viewer:main',
+            'tactile_to_vibration = manus_revo2_retarget.tactile_to_vibration:main',
         ],
     },
 )

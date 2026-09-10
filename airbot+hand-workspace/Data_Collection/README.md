@@ -1,26 +1,24 @@
 # Data_Collection
 
-采集 **图像 + 机械臂关节角 / 末端**，写入 LeRobot。只负责落盘，不做校验或可视化。
+采集 **图像 + 机械臂关节角/末端 + Revo2 手反馈（含触觉）**，写入同一 LeRobot episode。  
+只负责落盘，不做校验或可视化。
 
-遥操在 `EE_controlhal/VIVE_control_openvr`（或 PICO `middle_interface`），通过 `/arm/state` 把臂状态送给本目录。
-
-采集器跑在**自己的 Python 3.12 环境** `.venv-collect` 里，经 rosbridge websocket 取臂状态 —— 因为遥操合容器是 ROS 2 Humble / Python 3.10，而 `vendor/lerobot-main` 要求 Python ≥ 3.12。
-
-先在遥操容器里起 rosbridge（只需一次，之后常驻）：
+遥操：宿主机 VIVE（`EE_controlhal/VIVE_control_openvr`）控臂，并发布 `/arm/state` 与右踏板门控 `/teleop/hand_recording`；容器内 MANUS→Revo2 控手。一键入口：
 
 ```bash
-docker exec -d -u 0 airbot-revo-humble \
-  bash -lc 'exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml'
+/home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/scripts/teleop_vive_hand_up.sh
 ```
 
-再在宿主机开录：
+采集器跑在**自己的 Python 3.12 环境** `.venv-collect` 里，经 rosbridge websocket 取臂/手状态 —— 因为合容器是 ROS 2 Humble / Python 3.10，而 `vendor/lerobot-main` 要求 Python ≥ 3.12。
+
+先保证遥操与 rosbridge 已起，再在宿主机开录：
 
 ```bash
 cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/Data_Collection
-.venv-collect/bin/python collect/collect.py --task pick_cup
+.venv-collect/bin/python collect/collect.py --task airbot_revo2_right
 ```
 
-没有相机 / 机械臂 / rosbridge 时，先用 Mock 确认程序能跑（`--mock` 会自动切到本地假臂状态）：
+没有相机 / 机械臂 / rosbridge 时，先用 Mock：
 
 ```bash
 .venv-collect/bin/python collect/collect.py --mock --seconds 1 --task mock_smoke
@@ -32,8 +30,11 @@ cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/Data_Collection
 
 | 模态 | 采集时做什么 | 写到哪里 |
 |------|----------------|----------|
-| 右腕 RealSense D405 | 30 fps 取流，约 **10 Hz** 落一帧 | LeRobot（或 JSONL 回退） |
-| AIRBOT Play | 经 rosbridge 订 `/arm/state`：6 关节 + 末端 xyz / `[x,y,z,w]` | 同一帧里的 `arm_*` |
+| 全局 USB 相机（LRCP V1080P） | OpenCV 取流，约 **10 Hz** 落一帧 | LeRobot 视频 |
+| AIRBOT Play | rosbridge 订 `/arm/state`：6 关节 + 末端 | `arm_*` |
+| Revo2 右手 | rosbridge 订 `joint_states` + `dynamic_joint_states` | `hand_right_*` + tactile |
+
+默认相机：`cam_global` → `/dev/v4l/by-id/usb-LRCP_V1080P_LRCP_V1080P-video-index0`（见 `collect/config/collect.yaml`；USB 对照 [docs/USB_DEVICES.md](../docs/USB_DEVICES.md)）。
 
 ---
 
@@ -41,9 +42,9 @@ cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/Data_Collection
 
 ```text
 Data_Collection/
-  collect/        采集程序和配置（从这里启动）
+  collect/        统一采集（图+臂+手）——从这里启动
   vendor/         内置 lerobot-main（需要 Python >= 3.12）
-  docs/           原始字段说明
+  docs/           字段说明
   data/           录出来的数据（已 gitignore）
   .venv-collect/  采集专用 Python 3.12 环境（已 gitignore）
 ```
@@ -51,46 +52,39 @@ Data_Collection/
 | 你想做的事 | 去哪 |
 |------------|------|
 | 开始录 | `collect/collect.py` |
-| 改相机 SN、臂状态来源 | `collect/config/collect.yaml` |
-| VIVE 遥操 | `../EE_controlhal/VIVE_control_openvr` |
+| 改相机设备、手话题 | `collect/config/collect.yaml` |
+| VIVE + 手一键遥操 | `../scripts/teleop_vive_hand_up.sh` |
 
 ---
 
 ## 采集怎么用
 
-所有命令都在本目录执行：
-
 ```bash
 cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/Data_Collection
-.venv-collect/bin/python collect/collect.py --task pick_cup
-```
-
-指定输出目录（默认落在本目录的 `data/`）：
-
-```bash
-.venv-collect/bin/python collect/collect.py --task pick_cup --data-root /path/to/data
+.venv-collect/bin/python collect/collect.py --task airbot_revo2_right
 ```
 
 启动后：
 
-| 键 | 作用 |
-|----|------|
+| 键 / 踏板 | 作用 |
+|-----------|------|
+| 右踏板（`/teleop/hand_recording`） | 按下开始写帧，松开自动保存 |
 | Space | 开始 / 停止当前这一条 |
 | `s` 或 Enter | 保存 |
 | `d` | 丢掉，不保存 |
 | `q` | 退出 |
 
-配置文件：`collect/config/collect.yaml`。
+依赖：`opencv-python-headless`（UVC 相机）、`roslibpy`、以及 `collect/requirements-lerobot-record.txt`（parquet/MP4）。
 
 ---
 
 ## 录完数据在哪
 
 ```text
-data/lerobot/<任务名>/
+data/lerobot/airbot_revo2_right/
   meta/info.json
   data/chunk-000/file-000.parquet
-  videos/observation.images.cam_right_wrist/.../file-000.mp4
+  videos/observation.images.cam_global/.../file-000.mp4
 ```
 
 ---

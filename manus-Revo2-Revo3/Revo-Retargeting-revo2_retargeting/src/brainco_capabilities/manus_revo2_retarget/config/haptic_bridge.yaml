@@ -1,0 +1,3 @@
+force_scale: 5.0
+deadband_n: 0.05
+publish_hz: 30.0

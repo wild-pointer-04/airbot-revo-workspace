@@ -1,6 +1,0 @@
-defaults:
-  - basis
-  - demonstrators: setup
-  - samplers: mcap
-  - managers: keyboard
-  - override hydra/job_logging: custom

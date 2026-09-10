@@ -22,25 +22,43 @@ class HandRecordingPublisher:
         *,
         topic: str = HAND_RECORDING_TOPIC,
         hz: float = 20.0,
+        host: str = "localhost",
+        port: int = 9090,
     ) -> None:
         if hz <= 0:
             raise ValueError("hand-recording publish rate must be positive")
         self._recording_active = recording_active
         self._topic = topic
         self._period = 1.0 / hz
+        self._host = host
+        self._port = int(port)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._node = None
+        self._ros = None
         self._publisher = None
 
     def start(self) -> None:
-        import rclpy
-        from std_msgs.msg import Bool
+        try:
+            import roslibpy
+        except ImportError as exc:
+            raise RuntimeError("Install roslibpy in the VIVE environment.") from exc
 
-        if not rclpy.ok():
-            rclpy.init()
-        self._node = rclpy.create_node("hand_recording_gate")
-        self._publisher = self._node.create_publisher(Bool, self._topic, 10)
+        self._ros = roslibpy.Ros(host=self._host, port=self._port)
+        try:
+            self._ros.run(timeout=10.0)
+            connected = self._ros.is_connected
+        except Exception:
+            connected = False
+        if not connected:
+            self.stop()
+            raise RuntimeError(
+                f"rosbridge is unavailable at ws://{self._host}:{self._port}"
+            )
+        self._publisher = roslibpy.Topic(
+            self._ros,
+            self._topic,
+            "std_msgs/Bool",
+        )
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._run,
@@ -48,7 +66,13 @@ class HandRecordingPublisher:
             daemon=True,
         )
         self._thread.start()
-        log.info("Publishing %s at %.0f Hz", self._topic, 1.0 / self._period)
+        log.info(
+            "Publishing %s via ws://%s:%d at %.0f Hz",
+            self._topic,
+            self._host,
+            self._port,
+            1.0 / self._period,
+        )
 
     def stop(self) -> None:
         self._stop.set()
@@ -56,14 +80,18 @@ class HandRecordingPublisher:
             self._thread.join(timeout=1.0)
             self._thread = None
         if self._publisher is not None:
-            self._publish(False)
-        if self._node is not None:
             try:
-                self._node.destroy_node()
+                self._publish(False)
+                self._publisher.unadvertise()
             except Exception:
                 pass
-            self._node = None
         self._publisher = None
+        if self._ros is not None:
+            try:
+                self._ros.terminate()
+            except Exception:
+                pass
+            self._ros = None
 
     def _run(self) -> None:
         next_tick = time.monotonic()
@@ -79,8 +107,6 @@ class HandRecordingPublisher:
     def _publish(self, active: bool) -> None:
         if self._publisher is None:
             return
-        from std_msgs.msg import Bool
+        import roslibpy
 
-        message = Bool()
-        message.data = bool(active)
-        self._publisher.publish(message)
+        self._publisher.publish(roslibpy.Message({"data": bool(active)}))

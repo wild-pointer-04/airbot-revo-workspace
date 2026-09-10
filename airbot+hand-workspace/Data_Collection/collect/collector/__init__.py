@@ -1,4 +1,4 @@
-"""Collector: cameras + AIRBOT joint / EE pose → LeRobot."""
+"""Collector: cameras + AIRBOT arm + Revo2 hand → LeRobot."""
 
 from collector.collector import Collector
 from collector.features import build_features

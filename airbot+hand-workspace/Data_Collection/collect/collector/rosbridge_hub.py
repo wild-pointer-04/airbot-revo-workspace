@@ -1,10 +1,4 @@
-"""Subscribe to /arm/state over a rosbridge websocket and push into SyncBuffer.
-
-Same payload as Ros2StateHub (std_msgs/String carrying JSON), so decode_state is
-reused. This path exists because the teleop container runs ROS 2 Humble on Python
-3.10 while the vendored LeRobot writer needs Python >= 3.12: the collector runs in
-its own 3.12 environment and reaches ROS through rosbridge instead of rclpy.
-"""
+"""Subscribe to /arm/state + Revo2 hand topics over rosbridge into SyncBuffer."""
 
 from __future__ import annotations
 
@@ -14,12 +8,18 @@ import threading
 import time
 from typing import Optional
 
+from collector.hand_adapter import (
+    joint_state_to_observation,
+    missing_hand,
+    tactile_from_dynamic_joint_state,
+)
 from collector.ros2_codec import ARM_TOPIC, decode_state
 from collector.sync_buffer import SyncBuffer
 
 log = logging.getLogger(__name__)
 
 SRC_ARM = "arm"
+SRC_HAND = "hand"
 
 
 class RosbridgeStateHub:
@@ -28,18 +28,35 @@ class RosbridgeStateHub:
         buffer: SyncBuffer,
         *,
         arm_topic: str = ARM_TOPIC,
+        hand_side: str = "right",
+        hand_topic: str | None = None,
+        hand_tactile_topic: str | None = None,
         host: str = "localhost",
         port: int = 9090,
         connect_timeout_s: float = 10.0,
+        enable_hand: bool = True,
     ) -> None:
         self._buffer = buffer
         self._arm_topic = arm_topic
+        self._hand_side = hand_side
+        self._hand_topic = hand_topic or (
+            f"/revo2_{hand_side}/revo2_joint_state/joint_states"
+        )
+        self._hand_tactile_topic = hand_tactile_topic or (
+            f"/revo2_{hand_side}/revo2_joint_state/dynamic_joint_states"
+        )
+        self._enable_hand = enable_hand
         self._host = host
         self._port = int(port)
         self._connect_timeout_s = float(connect_timeout_s)
         self._ros = None
-        self._topic = None
+        self._topics: list = []
         self._stale_warned = False
+        self._latest_hand = missing_hand(hand_side)
+        self._latest_tactile = self._latest_hand[
+            f"observation.state.hand_{hand_side}_tactile"
+        ].copy()
+        self._hand_lock = threading.Lock()
 
     def start(self) -> None:
         try:
@@ -63,23 +80,50 @@ class RosbridgeStateHub:
                 "Start it in the teleop container: "
                 "ros2 launch rosbridge_server rosbridge_websocket_launch.xml"
             )
-        self._topic = roslibpy.Topic(
+
+        arm = roslibpy.Topic(
             self._ros,
             self._arm_topic,
             "std_msgs/String",
             throttle_rate=0,
             queue_length=1,
         )
-        self._topic.subscribe(self._on_arm)
+        arm.subscribe(self._on_arm)
+        self._topics.append(arm)
         log.info("rosbridge state: %s via ws://%s:%d", self._arm_topic, self._host, self._port)
 
+        if self._enable_hand:
+            hand = roslibpy.Topic(
+                self._ros,
+                self._hand_topic,
+                "sensor_msgs/JointState",
+                throttle_rate=0,
+                queue_length=1,
+            )
+            hand.subscribe(self._on_hand)
+            self._topics.append(hand)
+            tactile = roslibpy.Topic(
+                self._ros,
+                self._hand_tactile_topic,
+                "control_msgs/DynamicJointState",
+                throttle_rate=0,
+                queue_length=1,
+            )
+            tactile.subscribe(self._on_tactile)
+            self._topics.append(tactile)
+            log.info(
+                "rosbridge hand: %s + %s",
+                self._hand_topic,
+                self._hand_tactile_topic,
+            )
+
     def stop(self) -> None:
-        if self._topic is not None:
+        for topic in self._topics:
             try:
-                self._topic.unsubscribe()
+                topic.unsubscribe()
             except Exception:
                 pass
-            self._topic = None
+        self._topics = []
         if self._ros is not None:
             try:
                 self._ros.terminate()
@@ -96,9 +140,6 @@ class RosbridgeStateHub:
         ns = data.get("host_monotonic_ns")
         ts: Optional[float] = None
         if ns is not None:
-            # The publisher stamps its own monotonic clock. Across processes that
-            # shares an origin only inside one container; reject it when the skew
-            # would make every frame look stale to SyncBuffer.
             candidate = int(ns) / 1_000_000_000.0
             if abs(candidate - time.monotonic()) < 1.0:
                 ts = candidate
@@ -109,6 +150,24 @@ class RosbridgeStateHub:
                     "using local arrival time for arm state"
                 )
         self._buffer.update(SRC_ARM, data, timestamp=ts)
+
+    def _on_hand(self, msg: dict) -> None:
+        state = joint_state_to_observation(msg, self._hand_side)
+        with self._hand_lock:
+            state[
+                f"observation.state.hand_{self._hand_side}_tactile"
+            ] = self._latest_tactile.copy()
+            self._latest_hand = state
+            self._buffer.update(SRC_HAND, state)
+
+    def _on_tactile(self, msg: dict) -> None:
+        tactile = tactile_from_dynamic_joint_state(msg, self._hand_side)
+        with self._hand_lock:
+            self._latest_tactile = tactile
+            state = dict(self._latest_hand)
+            state[f"observation.state.hand_{self._hand_side}_tactile"] = tactile.copy()
+            self._latest_hand = state
+            self._buffer.update(SRC_HAND, state)
 
     @property
     def connected(self) -> bool:

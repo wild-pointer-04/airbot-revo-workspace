@@ -1,4 +1,4 @@
-"""Multi-camera capture: RealSense by serial number, plus a mock backend."""
+"""Multi-camera capture: OpenCV/UVC, RealSense by serial, plus a mock backend."""
 
 from __future__ import annotations
 
@@ -16,12 +16,13 @@ log = logging.getLogger(__name__)
 @dataclass
 class CameraConfig:
     name: str
+    backend: str = "realsense"  # opencv | realsense | mock
     serial_number: str = ""
     width: int = 640
     height: int = 480
     fps: int = 30
     enable_depth: bool = False
-    device: str = ""
+    device: str = "/dev/video0"
 
 
 class RealSenseStream:
@@ -137,6 +138,119 @@ class RealSenseStream:
                     time.sleep(0.01)
 
 
+class OpenCVStream:
+    """USB / V4L2 camera via OpenCV. Frames are stored as RGB uint8."""
+
+    def __init__(self, config: CameraConfig):
+        self._config = config
+        self._cap = None
+        self._frame: Optional[np.ndarray] = None
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._frame_count = 0
+
+    @property
+    def name(self) -> str:
+        return self._config.name
+
+    @property
+    def frame_count(self) -> int:
+        return self._frame_count
+
+    def start(self) -> bool:
+        try:
+            import cv2
+        except ImportError:
+            log.error("opencv-python is not installed (needed for type: opencv cameras)")
+            return False
+
+        device = self._config.device
+        open_target: str | int = device
+        if isinstance(device, str) and device.isdigit():
+            open_target = int(device)
+        elif isinstance(device, str):
+            from pathlib import Path
+
+            resolved = Path(device).resolve()
+            if resolved.exists():
+                open_target = str(resolved)
+                log.info(
+                    "Camera '%s' device %s → %s",
+                    self.name,
+                    device,
+                    open_target,
+                )
+        try:
+            self._cap = cv2.VideoCapture(open_target, cv2.CAP_V4L2)
+            if not self._cap.isOpened():
+                self._cap = cv2.VideoCapture(open_target)
+            if not self._cap.isOpened():
+                log.error("Failed to open OpenCV camera '%s' device=%s", self.name, device)
+                self._cap = None
+                return False
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._config.width)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._config.height)
+            self._cap.set(cv2.CAP_PROP_FPS, self._config.fps)
+            # Reduce internal buffering so SyncBuffer sees fresher frames.
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception as exc:
+            log.error("OpenCV camera '%s' start failed: %s", self.name, exc)
+            self._cap = None
+            return False
+
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._capture_loop, daemon=True, name=f"cam-opencv-{self.name}"
+        )
+        self._thread.start()
+        log.info(
+            "OpenCV camera '%s' opened device=%s target=%dx%d@%dfps",
+            self.name,
+            device,
+            self._config.width,
+            self._config.height,
+            self._config.fps,
+        )
+        return True
+
+    def stop(self):
+        self._running = False
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+    def get_frame(self) -> Optional[np.ndarray]:
+        with self._lock:
+            return self._frame.copy() if self._frame is not None else None
+
+    def get_depth(self) -> Optional[np.ndarray]:
+        return None
+
+    def _capture_loop(self):
+        import cv2
+
+        period = 1.0 / max(self._config.fps, 1)
+        while self._running and self._cap is not None:
+            ok, bgr = self._cap.read()
+            if not ok or bgr is None:
+                time.sleep(0.01)
+                continue
+            if bgr.shape[0] != self._config.height or bgr.shape[1] != self._config.width:
+                bgr = cv2.resize(bgr, (self._config.width, self._config.height))
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            with self._lock:
+                self._frame = rgb
+            self._frame_count += 1
+            time.sleep(period)
+
+
 class MockStream:
     """Hardware-free RGB source: gray canvas plus a moving stripe."""
 
@@ -192,12 +306,21 @@ class MockStream:
 
 
 class MultiCameraCapture:
-    """Manages multiple camera streams (RealSense or mock)."""
+    """Manages multiple camera streams (OpenCV, RealSense, or mock)."""
 
     def __init__(self, configs: list[CameraConfig], mock: bool = False):
-        cls = MockStream if mock else RealSenseStream
-        self._streams = [cls(cfg) for cfg in configs]
         self._mock = mock
+        self._streams = []
+        for cfg in configs:
+            backend = "mock" if mock else str(cfg.backend or "realsense").lower()
+            if backend == "mock":
+                self._streams.append(MockStream(cfg))
+            elif backend == "opencv":
+                self._streams.append(OpenCVStream(cfg))
+            elif backend == "realsense":
+                self._streams.append(RealSenseStream(cfg))
+            else:
+                raise ValueError(f"Unsupported camera backend {backend!r} for {cfg.name}")
 
     def start_all(self) -> dict[str, bool]:
         results = {}
@@ -229,17 +352,24 @@ def cameras_from_config(cameras_cfg: dict, mock: bool = False) -> MultiCameraCap
         if not isinstance(raw, dict):
             continue
         enabled = bool(raw.get("enabled", True))
+        backend = str(raw.get("type") or raw.get("backend") or "realsense").lower()
         serial = str(raw.get("serial_number", "")).strip()
+        device = str(raw.get("device", "/dev/video0")).strip()
         if not mock and not enabled:
             log.info("Camera '%s' disabled in config, skip", name)
             continue
-        if not mock and not serial:
+        if not mock and backend == "realsense" and not serial:
             log.warning("Camera '%s' has empty serial_number, skip", name)
+            continue
+        if not mock and backend == "opencv" and not device:
+            log.warning("Camera '%s' has empty device, skip", name)
             continue
         configs.append(
             CameraConfig(
                 name=name,
+                backend=backend,
                 serial_number=serial,
+                device=device,
                 width=int(raw.get("width", 640)),
                 height=int(raw.get("height", 480)),
                 fps=int(raw.get("fps", 30)),

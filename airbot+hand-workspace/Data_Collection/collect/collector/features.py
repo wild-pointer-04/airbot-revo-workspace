@@ -1,12 +1,15 @@
-"""LeRobot feature schema: wrist camera + AIRBOT joint / EE pose."""
+"""LeRobot feature schema: camera(s) + AIRBOT arm + Revo2 hand."""
 
 from __future__ import annotations
 
 import numpy as np
 
+from collector.hand_adapter import TACTILE_DIM, joint_names_for_side, tactile_joint_names_for_side
+
 CAM_SHAPE = (480, 640, 3)
-DEFAULT_CAMERA_NAMES = ("cam_right_wrist",)
+DEFAULT_CAMERA_NAMES = ("cam_global",)
 ARM_JOINT_DIM = 6
+DEFAULT_HAND_SIDE = "right"
 
 
 def camera_feature_key(name: str) -> str:
@@ -26,10 +29,18 @@ def _vec(dtype: str, shape: tuple[int, ...], names: list[str] | None = None) -> 
     return {"dtype": dtype, "shape": shape, "names": names}
 
 
-def build_features(camera_names: tuple[str, ...] | list[str] | None = None) -> dict:
+def build_features(
+    camera_names: tuple[str, ...] | list[str] | None = None,
+    *,
+    hand_side: str = DEFAULT_HAND_SIDE,
+) -> dict:
     names = tuple(camera_names) if camera_names else DEFAULT_CAMERA_NAMES
     if not names:
         raise ValueError("at least one camera is required")
+
+    hand_names = list(joint_names_for_side(hand_side))
+    tactile_names = list(tactile_joint_names_for_side(hand_side))
+    prefix = f"observation.state.hand_{hand_side}"
 
     features: dict = {camera_feature_key(name): dict(_CAM_FEATURE) for name in names}
     features.update(
@@ -43,6 +54,10 @@ def build_features(camera_names: tuple[str, ...] | list[str] | None = None) -> d
                 "float32", (4,), ["qx", "qy", "qz", "qw"]
             ),
             "observation.state.arm_valid": _vec("float32", (1,), ["valid"]),
+            f"{prefix}_joint": _vec("float32", (6,), hand_names),
+            f"{prefix}_velocity": _vec("float32", (6,), hand_names),
+            f"{prefix}_valid": _vec("float32", (1,), ["valid"]),
+            f"{prefix}_tactile": _vec("float32", (TACTILE_DIM,), tactile_names),
             "action": _vec(
                 "float32", (ARM_JOINT_DIM,), [f"j{i}" for i in range(ARM_JOINT_DIM)]
             ),

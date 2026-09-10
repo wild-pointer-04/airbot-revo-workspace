@@ -1,4 +1,4 @@
-"""Episode orchestrator: 10 Hz LeRobot tick + keyboard /record_cmd."""
+"""Episode orchestrator: 10 Hz LeRobot tick + pedal gate / keyboard /record_cmd."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import yaml
 from collector.arm_adapter import MockArmAdapter, missing_arm
 from collector.camera import cameras_from_config
 from collector.features import black_image, camera_feature_key
+from collector.hand_adapter import missing_hand
 from collector.lerobot_writer import LeRobotWriter
 from collector.paths import DEFAULT_DATA_ROOT
 from collector.ros2_codec import ARM_TOPIC
@@ -24,6 +25,7 @@ from collector.sync_buffer import SyncBuffer
 log = logging.getLogger(__name__)
 
 SRC_ARM = "arm"
+SRC_HAND = "hand"
 
 
 def _observation_fields(payload: dict[str, Any]) -> dict[str, Any]:
@@ -53,6 +55,11 @@ class Collector:
         self._dataset_root = Path(ds.get("root") or (self._data_root / "lerobot"))
         self._dataset_path = self._dataset_root / self._repo_id
 
+        hand_cfg = dict(config.get("hand") or {})
+        self._hand_side = str(hand_cfg.get("side", "right"))
+        self._hand_enabled = bool(hand_cfg.get("enabled", True))
+        self._hand_max_age_s = float(hand_cfg.get("max_age_s", 0.2))
+
         self._recording = False
         self._saving = False
         self._running = True
@@ -66,13 +73,15 @@ class Collector:
         if not self._camera_names:
             raise ValueError("collect.yaml cameras: enable at least one camera")
         self._cam_fail_streak = {name: 0 for name in self._camera_names}
-        self._buffer = SyncBuffer(
-            self._camera_names + [SRC_ARM],
-            max_age_s=0.2,
-            max_age_by_source={SRC_ARM: 0.2},
-        )
 
-        source = str(config.get("state_source", "ros2")).lower()
+        sources = list(self._camera_names) + [SRC_ARM]
+        max_age_by_source = {SRC_ARM: 0.2}
+        if self._hand_enabled:
+            sources.append(SRC_HAND)
+            max_age_by_source[SRC_HAND] = self._hand_max_age_s
+        self._buffer = SyncBuffer(sources, max_age_s=0.2, max_age_by_source=max_age_by_source)
+
+        source = str(config.get("state_source", "rosbridge")).lower()
         if source not in ("ros2", "rosbridge", "local"):
             raise ValueError(
                 f"state_source must be ros2, rosbridge or local, got {source!r}"
@@ -88,13 +97,23 @@ class Collector:
             root=str(self._dataset_root),
             fps=self._fps,
             use_videos=bool(ds.get("use_videos", True)),
-            robot_type="airbot",
+            robot_type="airbot_revo2",
             task=self._task_id,
             camera_names=self._camera_names,
+            hand_side=self._hand_side,
         )
         self._ros = None
         self._poll_stop = threading.Event()
         self._poll_thread: Optional[threading.Thread] = None
+
+        gate = dict(config.get("recording_gate") or {})
+        self._gate_enabled = bool(gate.get("enabled", True)) and not self._mock
+        self._gate_topic = str(gate.get("topic") or "/teleop/hand_recording")
+        self._gate_max_age_s = float(gate.get("max_age_s", 0.5))
+        self._gate_active = False
+        self._gate_arrival_s: Optional[float] = None
+        self._gate_lock = threading.Lock()
+        self._gate_was_active = False
 
     def start_session(self) -> None:
         self._writer.initialize()
@@ -113,26 +132,33 @@ class Collector:
             from collector.rosbridge_hub import RosbridgeStateHub
 
             ros_cfg = dict(self._config.get("ros2") or {})
+            hand_cfg = dict(self._config.get("hand") or {})
             bridge = dict(self._config.get("rosbridge") or {})
             self._ros_hub = RosbridgeStateHub(
                 self._buffer,
                 arm_topic=str(ros_cfg.get("arm_topic") or ARM_TOPIC),
+                hand_side=self._hand_side,
+                hand_topic=hand_cfg.get("topic"),
+                hand_tactile_topic=hand_cfg.get("tactile_topic"),
                 host=str(bridge.get("host", "localhost")),
                 port=int(bridge.get("port", 9090)),
+                enable_hand=self._hand_enabled,
             )
             self._ros_hub.start()
         else:
             assert self._arm is not None
             self._arm.start()
             self._start_poller()
-        self._maybe_connect_rosbridge()
+        self._maybe_connect_rosbridge_controls()
         log.info(
-            "Collector ready mock=%s state=%s task=%s fps=%d writer=%s",
+            "Collector ready mock=%s state=%s task=%s fps=%d writer=%s hand=%s gate=%s",
             self._mock,
             self._state_source,
             self._task_id,
             self._fps,
             self._writer.backend,
+            self._hand_side if self._hand_enabled else "off",
+            self._gate_topic if self._gate_enabled else "off",
         )
 
     def _start_poller(self) -> None:
@@ -147,25 +173,85 @@ class Collector:
             host_ns = arm.get("host_monotonic_ns")
             ts = (int(host_ns) / 1_000_000_000.0) if host_ns is not None else None
             self._buffer.update(SRC_ARM, arm, timestamp=ts)
+            if self._hand_enabled:
+                # Mock hand: slow sinusoid so --mock episodes exercise the schema.
+                t = time.monotonic()
+                hand = missing_hand(self._hand_side)
+                prefix = f"observation.state.hand_{self._hand_side}"
+                joints = 0.05 * np.sin(
+                    0.5 * t + np.arange(6, dtype=np.float32)
+                )
+                hand[f"{prefix}_joint"] = joints.astype(np.float32)
+                hand[f"{prefix}_valid"] = np.array([1.0], dtype=np.float32)
+                hand[f"{prefix}_tactile"] = np.clip(
+                    0.2 * np.sin(0.7 * t + np.arange(5, dtype=np.float32)),
+                    0.0,
+                    None,
+                ).astype(np.float32)
+                self._buffer.update(SRC_HAND, hand)
             time.sleep(interval)
 
-    def _maybe_connect_rosbridge(self) -> None:
+    def _maybe_connect_rosbridge_controls(self) -> None:
         bridge = dict(self._config.get("rosbridge") or {})
-        if not bridge.get("enabled", False):
+        want_cmd = bool(bridge.get("enabled", False))
+        want_gate = self._gate_enabled
+        if not want_cmd and not want_gate:
             return
         try:
             import roslibpy
         except ImportError:
-            log.warning("roslibpy not installed; /record_cmd disabled")
+            log.warning("roslibpy not installed; recording controls disabled")
             return
         self._ros = roslibpy.Ros(
             host=str(bridge.get("host", "localhost")),
             port=int(bridge.get("port", 9090)),
         )
-        self._ros.run()
-        topic = roslibpy.Topic(self._ros, str(bridge.get("topic", "/record_cmd")), "std_msgs/String")
-        topic.subscribe(self._record_cmd_cb)
-        log.info("Subscribed to /record_cmd via rosbridge")
+        try:
+            self._ros.run(timeout=10.0)
+            connected = self._ros.is_connected
+        except Exception:
+            connected = False
+        if not connected:
+            log.warning(
+                "rosbridge controls unavailable at ws://%s:%s",
+                bridge.get("host", "localhost"),
+                bridge.get("port", 9090),
+            )
+            self._ros = None
+            return
+        if want_cmd:
+            topic = roslibpy.Topic(
+                self._ros, str(bridge.get("topic", "/record_cmd")), "std_msgs/String"
+            )
+            topic.subscribe(self._record_cmd_cb)
+            log.info("Subscribed to /record_cmd via rosbridge")
+        if want_gate:
+            gate = roslibpy.Topic(
+                self._ros,
+                self._gate_topic,
+                "std_msgs/Bool",
+                throttle_rate=0,
+                queue_length=1,
+            )
+            gate.subscribe(self._recording_gate_cb)
+            log.info("Subscribed to recording gate %s", self._gate_topic)
+
+    def _recording_gate_cb(self, msg: dict) -> None:
+        active = msg.get("data")
+        if not isinstance(active, bool):
+            return
+        with self._gate_lock:
+            self._gate_active = active
+            self._gate_arrival_s = time.monotonic()
+
+    def _gate_is_active(self, now_s: float) -> bool:
+        with self._gate_lock:
+            return bool(
+                self._gate_enabled
+                and self._gate_active
+                and self._gate_arrival_s is not None
+                and now_s - self._gate_arrival_s <= self._gate_max_age_s
+            )
 
     def _record_cmd_cb(self, msg: dict) -> None:
         cmd = msg.get("data", "")
@@ -209,6 +295,9 @@ class Collector:
 
             arm = snapshot.get(SRC_ARM) or missing_arm()
             frame_data.update(_observation_fields(arm))
+            if self._hand_enabled:
+                hand = snapshot.get(SRC_HAND) or missing_hand(self._hand_side)
+                frame_data.update(_observation_fields(hand))
 
             with self._writer_lock:
                 self._writer.add_frame(frame_data)
@@ -292,7 +381,8 @@ class Collector:
         signal.signal(signal.SIGTERM, _sigint_handler)
 
         deadline: Optional[float] = None
-        if seconds is not None:
+        auto_mode = seconds is not None
+        if auto_mode:
             time.sleep(0.05)
             self.start_recording()
             deadline = time.monotonic() + max(seconds, 0.05)
@@ -301,7 +391,9 @@ class Collector:
                 target=self._keyboard_listener, args=(stop_event,), daemon=True
             )
             kb.start()
-            log.info("Controls: Space start/stop | s save | d discard | q quit")
+            log.info(
+                "Controls: right pedal gate | Space start/stop | s save | d discard | q quit"
+            )
 
         interval = 1.0 / self._fps
         next_tick = time.monotonic()
@@ -313,6 +405,18 @@ class Collector:
                 elif now - next_tick > interval * 2:
                     log.warning("Tick overrun: %.1fms behind", (now - next_tick) * 1000)
                     next_tick = now
+
+                if not auto_mode and self._gate_enabled:
+                    gate_on = self._gate_is_active(time.monotonic())
+                    if gate_on and not self._gate_was_active:
+                        log.info("Recording gate pressed; starting episode")
+                        self.start_recording()
+                    elif not gate_on and self._gate_was_active:
+                        log.info("Recording gate released; saving episode")
+                        self.stop_recording()
+                        self.save_episode()
+                    self._gate_was_active = gate_on
+
                 self._record_tick()
                 next_tick += interval
                 if deadline is not None and time.monotonic() >= deadline:
@@ -320,6 +424,9 @@ class Collector:
                     self.save_episode()
                     break
         finally:
+            if self._gate_was_active:
+                self.stop_recording()
+                self.save_episode()
             self.shutdown()
 
     def shutdown(self) -> None:

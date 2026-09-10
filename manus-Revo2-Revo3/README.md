@@ -100,7 +100,14 @@ MANUS 接收器 USB vendor 3325（必须 root 访问）
      controller_backend:=ros2_control \
      launch_plot:=false
    ```
-   理想：`revo2_pid_controller` active，`joint_forward_pos_controller` inactive。
+   理想：`revo2_pid_controller` active，`joint_forward_pos_controller` inactive。  
+   默认 `launch_haptic:=true`：把指尖 `tactile_normal_force` 映射到 `/manus_glove_0/vibration_cmd`。
+
+合工作区推荐用宿主机脚本一并起 VIVE 臂遥操：
+
+```bash
+/home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/scripts/teleop_vive_hand_up.sh
+```
 
 停 launch：该终端 Ctrl-C，或
 

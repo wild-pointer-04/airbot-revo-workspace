@@ -1,8 +1,0 @@
-data/
-**/__pycache__/
-**/.pytest_cache/
-*.pyc
-*.pyo
-.venv/
-*.egg-info/
-vive/data/

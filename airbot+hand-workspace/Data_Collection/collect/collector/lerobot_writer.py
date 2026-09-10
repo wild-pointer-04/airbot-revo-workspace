@@ -52,6 +52,7 @@ class LeRobotWriter:
         robot_type: str = "airbot",
         task: str = "pick_cup",
         camera_names: list[str] | tuple[str, ...] | None = None,
+        hand_side: str = "right",
     ):
         self._repo_id = repo_id
         self._root = Path(root)
@@ -59,7 +60,7 @@ class LeRobotWriter:
         self._use_videos = use_videos
         self._robot_type = robot_type
         self._task = task
-        self._features = build_features(camera_names=camera_names)
+        self._features = build_features(camera_names=camera_names, hand_side=hand_side)
         self._dataset = None
         self._backend = "jsonl"
         self._frame_count = 0

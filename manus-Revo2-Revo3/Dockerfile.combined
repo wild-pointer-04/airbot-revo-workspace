@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         docker.io \
         iproute2 \
         net-tools \
+        python3-serial \
         ros-humble-rosbridge-suite \
     && rm -rf /var/lib/apt/lists/*
 

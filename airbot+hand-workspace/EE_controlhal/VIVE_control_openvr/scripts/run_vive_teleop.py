@@ -126,6 +126,8 @@ def run(
                 source.recording_active,
                 topic=str(recording_cfg.get("topic") or HAND_RECORDING_TOPIC),
                 hz=float(recording_cfg.get("hz", 20)),
+                host=str(recording_cfg.get("rosbridge_host") or "localhost"),
+                port=int(recording_cfg.get("rosbridge_port") or 9090),
             )
             recording_pub.start()
         except Exception as exc:

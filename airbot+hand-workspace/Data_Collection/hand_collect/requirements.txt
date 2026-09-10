@@ -1,4 +1,0 @@
-# Reuse the dependency set pinned for the vendored LeRobot writer.
--r ../collect/requirements-lerobot-record.txt
-roslibpy>=1.8
-PyYAML>=6,<7

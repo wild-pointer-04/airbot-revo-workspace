@@ -47,8 +47,9 @@ Lighthouse 基站 ──光──► VIVE Tracker（body / right_wrist）
 | 语义 | `body` 当头显（原点），`right_wrist` 当右手；与 PICO 共用同一套管线 |
 | 坐标系 | `teleop.yaml` 里 `vr_space: steamvr`；本机已调到位置轴正确（`head_yaw_offset_deg: 0`） |
 | 离合 | 左脚踏 **按住=跟随，松开=停**（`KEY_1`）；空格可作键盘备用切换 |
-| 手部数采 | 右脚踏 **按住=写 Revo2 反馈，松开=保存 episode**（`KEY_2`）；VIVE 是 CM6K 唯一 HID 读取者 |
+| 手部数采 | 右脚踏 **按住=写统一多模态帧，松开=保存 episode**（`KEY_2`）；VIVE 是 CM6K 唯一 HID 读取者 |
 | 真机 | 宿主机跑遥操进程；臂驱动在 sidecar `:50051`（本机已装 `airbot_py`） |
+| 统一启动 | 仓库 `airbot+hand-workspace/scripts/teleop_vive_hand_up.sh`：rosbridge + 右手 pipeline（含触觉→Manus）+ 本包 `--real-arm` |
 
 ---
 
@@ -146,8 +147,6 @@ Null Driver 下的 Error 496（Failed to connect to headset display）可忽略�
 仍在该目录：
 
 ```bash
-# Hand recording gate uses ROS 2 rclpy; source the same ROS environment as the Revo2 driver.
-source /opt/ros/humble/setup.bash
 python3 scripts/run_vive_teleop.py --real-arm
 ```
 
@@ -155,7 +154,7 @@ python3 scripts/run_vive_teleop.py --real-arm
 
 - `ROBOT ADAPTER: COMMAND_LAYER`
 - `Foot pedal listening ... deadman=KEY_1 recording=KEY_2 mode=hold`
-- `Publishing /teleop/hand_recording at 20 Hz`
+- `Publishing /teleop/hand_recording via ws://localhost:9090 at 20 Hz`
 - `[OPENVR] tracking head=True hand=True`
 - 周期性 `clutch=False`（未踩踏板）或踩下后跟随
 
@@ -182,6 +181,14 @@ cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/EE_controlhal/VIVE_c
 
 ## 一键抄命令（真机最短路径）
 
+合容器 + 臂 sidecar 就绪后，推荐统一入口（rosbridge + 右手 + 触觉桥 + VIVE）：
+
+```bash
+/home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/scripts/teleop_vive_hand_up.sh
+```
+
+分步时：
+
 终端 A（臂）：
 
 ```bash
@@ -196,7 +203,6 @@ cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/EE_controlhal/VIVE_c
 ./scripts/start_steamvr.sh
 ./scripts/close_room_setup.sh   # 需要时
 python3 scripts/list_trackers.py
-source /opt/ros/humble/setup.bash
 python3 scripts/run_vive_teleop.py --real-arm
 ```
 
@@ -223,7 +229,7 @@ python3 scripts/run_vive_teleop.py --print-only
 cd /home/ubuntu/airbot-revo-workspace/airbot+hand-workspace/EE_controlhal/VIVE_control_openvr
 python3 -m pip install -r requirements.txt
 # 真机还需宿主机能 import airbot_py（本机已装 5.1.6 wheel）
-# 手部数采门控还需可 import rclpy（由 ROS 2 Humble 提供，先 source /opt/ros/humble/setup.bash）
+# 手部数采门控使用 requirements.txt 中的 roslibpy，经 rosbridge :9090 发布。
 ```
 
 无 SteamVR 的单测：

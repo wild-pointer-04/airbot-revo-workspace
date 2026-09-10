@@ -1,6 +1,0 @@
-[lint]
-ignore = ["F841", "F401"]
-exclude = [
-    "airdc/common/utils/transformations.py",
-    "airdc/tests/*",
-]

@@ -21,6 +21,7 @@
 
 import glob
 import sys
+import termios
 import time
 
 try:
@@ -154,7 +155,7 @@ def probe_port(port):
             timeout=READ_CHUNK_TIMEOUT,
             write_timeout=0.5,
         )
-    except (serial.SerialException, OSError) as exc:
+    except (serial.SerialException, OSError, termios.error) as exc:
         sys.stderr.write("[WARN] cannot open %s: %s\n" % (port, exc))
         return None
 

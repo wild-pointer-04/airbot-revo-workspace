@@ -14,3 +14,5 @@ fsspec>=2024.0
 numpy>=1.26,<2.3
 torch
 torchvision
+opencv-python-headless>=4.8
+roslibpy>=1.7

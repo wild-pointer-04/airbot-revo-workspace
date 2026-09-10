@@ -112,11 +112,16 @@ def _create_actions(context: LaunchContext, *args, **kwargs):
     use_ros2_control_pid = controller_backend in ("ros2_control", "ros2_control_pid", "pid")
     launch_retarget = _as_bool(LaunchConfiguration("launch_retarget").perform(context))
     launch_plot = _as_bool(LaunchConfiguration("launch_plot").perform(context))
+    launch_haptic = _as_bool(LaunchConfiguration("launch_haptic").perform(context))
     switch_delay = float(LaunchConfiguration("switch_delay").perform(context))
     retarget_delay = float(LaunchConfiguration("retarget_delay").perform(context))
     plot_delay = float(LaunchConfiguration("plot_delay").perform(context))
+    haptic_delay = float(LaunchConfiguration("haptic_delay").perform(context))
     plot_window = LaunchConfiguration("plot_window").perform(context)
     plot_joints = LaunchConfiguration("plot_joints").perform(context).strip()
+    force_scale = LaunchConfiguration("haptic_force_scale").perform(context)
+    deadband_n = LaunchConfiguration("haptic_deadband_n").perform(context)
+    publish_hz = LaunchConfiguration("haptic_publish_hz").perform(context)
 
     if hand_mode == "both" and not use_namespace:
         raise RuntimeError("hand_mode:=both requires use_namespace:=true")
@@ -231,6 +236,44 @@ def _create_actions(context: LaunchContext, *args, **kwargs):
             )
         )
 
+    if launch_haptic:
+        haptic_actions = []
+        # Right glove is manus_glove_0 in the verified dual-glove setup; left is 1.
+        glove_index_by_side = {"right": "0", "left": "1"}
+        for side in sides:
+            glove_index = glove_index_by_side[side]
+            haptic_actions.append(
+                ExecuteProcess(
+                    cmd=[
+                        "ros2",
+                        "run",
+                        "manus_revo2_retarget",
+                        "tactile_to_vibration",
+                        "--ros-args",
+                        "-p",
+                        f"hand_side:={side}",
+                        "-p",
+                        f"glove_index:={glove_index}",
+                        "-p",
+                        f"force_scale:={force_scale}",
+                        "-p",
+                        f"deadband_n:={deadband_n}",
+                        "-p",
+                        f"publish_hz:={publish_hz}",
+                    ],
+                    output="screen",
+                )
+            )
+        actions.append(
+            TimerAction(
+                period=haptic_delay,
+                actions=[
+                    LogInfo(msg="Starting Revo2 tactile → Manus vibration bridge."),
+                    *haptic_actions,
+                ],
+            )
+        )
+
     return actions
 
 
@@ -292,6 +335,31 @@ def generate_launch_description():
             "launch_plot",
             default_value="true",
             description="Start the target/actual/error plot monitor.",
+        ),
+        DeclareLaunchArgument(
+            "launch_haptic",
+            default_value="true",
+            description="Start Revo2 tactile_normal_force → Manus vibration bridge.",
+        ),
+        DeclareLaunchArgument(
+            "haptic_delay",
+            default_value="19.5",
+            description="Seconds to wait before starting the haptic bridge.",
+        ),
+        DeclareLaunchArgument(
+            "haptic_force_scale",
+            default_value="5.0",
+            description="Newtons that map to full Manus vibration intensity.",
+        ),
+        DeclareLaunchArgument(
+            "haptic_deadband_n",
+            default_value="0.05",
+            description="Ignore tactile forces below this threshold (Newtons).",
+        ),
+        DeclareLaunchArgument(
+            "haptic_publish_hz",
+            default_value="30.0",
+            description="Manus vibration publish rate.",
         ),
         DeclareLaunchArgument(
             "launch_manus_publisher",
